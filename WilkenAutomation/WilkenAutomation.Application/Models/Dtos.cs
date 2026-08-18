@@ -150,6 +150,33 @@ public class CreateRunRequestDto
     public bool AutoStart { get; set; }
 }
 
+public class RegisterRequestDto
+{
+    public string Email { get; set; } = "";
+    public string Password { get; set; } = "";
+    public string? DisplayName { get; set; }
+}
+
+public class LoginRequestDto
+{
+    public string Email { get; set; } = "";
+    public string Password { get; set; } = "";
+}
+
+public class AuthUserDto
+{
+    public long Id { get; set; }
+    public string Email { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+}
+
+public class AuthResponseDto
+{
+    public string Token { get; set; } = "";
+    public DateTime ExpiresAt { get; set; }
+    public AuthUserDto User { get; set; } = default!;
+}
+
 /// <summary>Heartbeat the worker publishes; also served via GET /api/worker/status.</summary>
 public class WorkerStatusDto
 {

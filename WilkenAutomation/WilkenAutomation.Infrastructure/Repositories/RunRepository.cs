@@ -42,8 +42,12 @@ public class RunRepository : IRunRepository
     public Task<AutomationRun?> GetByRunIdAsync(string runId, CancellationToken ct) =>
         _db.AutomationRuns.FirstOrDefaultAsync(r => r.RunId == runId, ct);
 
-    public Task<List<AutomationRun>> ListAsync(CancellationToken ct) =>
-        _db.AutomationRuns.OrderByDescending(r => r.CreatedAt).ToListAsync(ct);
+    public Task<List<AutomationRun>> ListAsync(CancellationToken ct, long? userId = null)
+    {
+        var query = _db.AutomationRuns.AsQueryable();
+        if (userId is > 0) query = query.Where(r => r.UserId == userId.Value);
+        return query.OrderByDescending(r => r.CreatedAt).ToListAsync(ct);
+    }
 
     public Task<AutomationRun?> GetActiveRunAsync(CancellationToken ct) =>
         _db.AutomationRuns

@@ -159,3 +159,15 @@ export interface JobDetail {
   job: Job;
   logs: LogEntry[];
 }
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  displayName: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  expiresAt: string;
+  user: AuthUser;
+}

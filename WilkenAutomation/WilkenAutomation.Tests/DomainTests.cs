@@ -196,3 +196,14 @@ public class RuntimeStatisticsTests
         Assert.Null(RunStatisticsService.EstimateRemainingMs(null, 10));
     }
 }
+
+public class PasswordHasherTests
+{
+    [Fact]
+    public void Hash_ThenVerify_Succeeds()
+    {
+        var hash = PasswordHasher.Hash("correct-horse");
+        Assert.True(PasswordHasher.Verify("correct-horse", hash));
+        Assert.False(PasswordHasher.Verify("wrong-password", hash));
+    }
+}

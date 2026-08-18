@@ -1,9 +1,10 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import {
   HubConnection,
   HubConnectionBuilder,
   HubConnectionState,
 } from '@microsoft/signalr';
+import { AuthService } from './auth.service';
 
 /** SignalR events broadcast by the WilkenAutomation backend. */
 const HUB_EVENTS = [
@@ -34,6 +35,7 @@ const HUB_URL = 'http://localhost:5210/hubs/job-monitoring';
 @Injectable({ providedIn: 'root' })
 export class RealtimeService {
   readonly connected = signal(false);
+  private auth = inject(AuthService);
 
   private connection: HubConnection | null = null;
   private listeners = new Set<(event: HubEvent, payload: unknown) => void>();
@@ -42,7 +44,9 @@ export class RealtimeService {
     if (this.connection) return;
 
     this.connection = new HubConnectionBuilder()
-      .withUrl(HUB_URL)
+      .withUrl(HUB_URL, {
+        accessTokenFactory: () => this.auth.token() ?? '',
+      })
       .withAutomaticReconnect()
       .build();
 

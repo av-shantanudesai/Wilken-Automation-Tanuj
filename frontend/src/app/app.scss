@@ -83,4 +83,28 @@ nav {
   max-width: 1280px;
   margin: 0 auto;
   padding: 24px;
+  &.full { max-width: none; padding: 24px; }
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+
+  .session-name {
+    color: #cbd5e1;
+    font-size: 13px;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    background: transparent;
+    border-color: #334155;
+    color: #cbd5e1;
+    &:hover:not(:disabled) { color: #fff; border-color: #94a3b8; }
+  }
 }

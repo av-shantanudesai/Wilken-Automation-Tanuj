@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WilkenAutomation.Api.Auth;
 using WilkenAutomation.Application.Enums;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Models;
@@ -7,6 +9,7 @@ using WilkenAutomation.Application.Services;
 namespace WilkenAutomation.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/jobs")]
 public class JobsController : ControllerBase
 {
@@ -29,9 +32,12 @@ public class JobsController : ControllerBase
         [FromQuery] int? fiscalYear, [FromQuery] string? department,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default)
     {
+        if (runId is not null && await ForbidRunAsync(runId, ct) is { } denied) return denied;
+
         var (total, items) = await _jobs.ListAsync(new JobFilter
         {
             RunId = runId,
+            UserId = User.GetUserId(),
             Status = status,
             Client = client,
             FiscalYear = fiscalYear,
@@ -54,6 +60,7 @@ public class JobsController : ControllerBase
     {
         var current = await _jobs.GetCurrentRunningAsync(ct);
         if (current is null) return NoContent();
+        if (await ForbidRunAsync(current.RunId, ct) is not null) return NoContent();
         return current.ToDto();
     }
 
@@ -62,6 +69,7 @@ public class JobsController : ControllerBase
     {
         var job = await _jobs.GetByJobIdAsync(jobId, ct);
         if (job is null) return NotFound();
+        if (await ForbidRunAsync(job.RunId, ct) is { } denied) return denied;
         var logs = await _logs.QueryAsync(null, jobId, 200, ct);
         return new JobDetailDto
         {
@@ -76,6 +84,7 @@ public class JobsController : ControllerBase
     {
         var job = await _jobs.GetByJobIdAsync(jobId, ct);
         if (job is null) return NotFound();
+        if (await ForbidRunAsync(job.RunId, ct) is { } denied) return denied;
         if (!JobStateMachine.CanTransition(job.Status, JobStatus.Pending))
             return Conflict(new { message = $"Job in status {job.Status} cannot be re-queued." });
 
@@ -98,17 +107,29 @@ public class JobsController : ControllerBase
         await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId = job.RunId }, ct);
         return job.ToDto();
     }
+
+    private async Task<ActionResult?> ForbidRunAsync(string runId, CancellationToken ct)
+    {
+        var run = await _runs.GetByRunIdAsync(runId, ct);
+        if (run is null || run.UserId != User.GetUserId()) return NotFound();
+        return null;
+    }
 }
 
 [ApiController]
+[Authorize]
 [Route("api/logs")]
 public class LogsController : ControllerBase
 {
     private readonly ILogRepository _logs;
+    private readonly IRunRepository _runs;
+    private readonly IJobRepository _jobs;
 
-    public LogsController(ILogRepository logs)
+    public LogsController(ILogRepository logs, IRunRepository runs, IJobRepository jobs)
     {
         _logs = logs;
+        _runs = runs;
+        _jobs = jobs;
     }
 
     [HttpGet]
@@ -116,6 +137,23 @@ public class LogsController : ControllerBase
         [FromQuery] string? runId, [FromQuery] string? jobId, [FromQuery] int limit = 100,
         CancellationToken ct = default)
     {
+        if (runId is not null)
+        {
+            var run = await _runs.GetByRunIdAsync(runId, ct);
+            if (run is null || run.UserId != User.GetUserId()) return Ok(new List<LogEntryDto>());
+        }
+        else if (jobId is not null)
+        {
+            var job = await _jobs.GetByJobIdAsync(jobId, ct);
+            if (job is null) return Ok(new List<LogEntryDto>());
+            var run = await _runs.GetByRunIdAsync(job.RunId, ct);
+            if (run is null || run.UserId != User.GetUserId()) return Ok(new List<LogEntryDto>());
+        }
+        else
+        {
+            return Ok(new List<LogEntryDto>());
+        }
+
         var logs = await _logs.QueryAsync(runId, jobId, limit, ct);
         return logs.Select(l => l.ToDto()).ToList();
     }

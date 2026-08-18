@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { AuditReport } from '../../core/models';
 import { API_BASE_URL } from '../../core/http-export-api';
 import { describeError } from '../../core/errors';
@@ -13,6 +14,7 @@ import { describeError } from '../../core/errors';
 })
 export class AuditPage {
   readonly api = inject(ApiService);
+  private auth = inject(AuthService);
   readonly report = signal<AuditReport | null>(null);
   readonly error = signal<string | null>(null);
 
@@ -36,7 +38,19 @@ export class AuditPage {
     if (!report) return;
 
     if (this.api.mode() === 'backend') {
-      window.open(`${API_BASE_URL}/runs/${report.runId}/audit.csv`, '_blank');
+      const token = this.auth.token();
+      void fetch(`${API_BASE_URL}/runs/${report.runId}/audit.csv`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }).then(async (res) => {
+        if (!res.ok) throw new Error(`Download failed (${res.status})`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${report.runId}_audit.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }).catch((e) => this.error.set(describeError(e)));
       return;
     }
 

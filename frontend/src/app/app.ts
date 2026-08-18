@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { ApiService } from './core/api.service';
+import { AuthService } from './core/auth.service';
 
 @Component({
   selector: 'app-root',
@@ -10,4 +11,10 @@ import { ApiService } from './core/api.service';
 })
 export class App {
   readonly api = inject(ApiService);
+  readonly auth = inject(AuthService);
+  private router = inject(Router);
+
+  get showShell(): boolean {
+    return this.auth.isLoggedIn() && !this.router.url.startsWith('/login');
+  }
 }

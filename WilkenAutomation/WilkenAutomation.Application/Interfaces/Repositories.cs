@@ -7,7 +7,7 @@ public interface IRunRepository
 {
     Task<AutomationRun> CreateWithJobsAsync(AutomationRun run, IEnumerable<ExportJob> jobs, CancellationToken ct);
     Task<AutomationRun?> GetByRunIdAsync(string runId, CancellationToken ct);
-    Task<List<AutomationRun>> ListAsync(CancellationToken ct);
+    Task<List<AutomationRun>> ListAsync(CancellationToken ct, long? userId = null);
     Task<AutomationRun?> GetActiveRunAsync(CancellationToken ct);
     Task UpdateAsync(AutomationRun run, CancellationToken ct);
 
@@ -21,12 +21,20 @@ public interface IRunRepository
 public class JobFilter
 {
     public string? RunId { get; set; }
+    public long? UserId { get; set; }
     public JobStatus? Status { get; set; }
     public string? Client { get; set; }
     public int? FiscalYear { get; set; }
     public string? Department { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 50;
+}
+
+public interface IUserRepository
+{
+    Task<AppUser?> GetByIdAsync(long id, CancellationToken ct);
+    Task<AppUser?> GetByEmailAsync(string email, CancellationToken ct);
+    Task<AppUser> CreateAsync(AppUser user, CancellationToken ct);
 }
 
 public interface IJobRepository

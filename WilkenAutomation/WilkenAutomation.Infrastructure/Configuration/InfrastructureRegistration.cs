@@ -34,6 +34,7 @@ public static class InfrastructureRegistration
         services.AddScoped<IRunRepository, RunRepository>();
         services.AddScoped<IJobRepository, JobRepository>();
         services.AddScoped<ILogRepository, LogRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
         services.AddSingleton<IChecksumService, ChecksumService>();
 
         return services;

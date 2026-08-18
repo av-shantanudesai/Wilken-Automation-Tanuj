@@ -60,7 +60,7 @@ public class JobGeneratorService
         };
     }
 
-    public async Task<AutomationRun> GenerateRunAsync(RunConfig config, string? notes, bool autoStart, CancellationToken ct)
+    public async Task<AutomationRun> GenerateRunAsync(RunConfig config, string? notes, bool autoStart, CancellationToken ct, long userId = 0)
     {
         if (config.ExpectedJobs == 0)
             throw new ArgumentException("Configuration yields zero jobs - check clients, years and departments.");
@@ -104,6 +104,7 @@ public class JobGeneratorService
         var run = new AutomationRun
         {
             RunId = runId,
+            UserId = userId,
             Status = autoStart ? RunStatus.Running : RunStatus.Created,
             ExpectedJobs = config.ExpectedJobs,
             TotalJobs = jobs.Count,

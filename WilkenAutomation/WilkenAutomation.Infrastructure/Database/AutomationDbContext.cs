@@ -7,6 +7,7 @@ public class AutomationDbContext : DbContext
 {
     public AutomationDbContext(DbContextOptions<AutomationDbContext> options) : base(options) { }
 
+    public DbSet<AppUser> AppUsers => Set<AppUser>();
     public DbSet<AutomationRun> AutomationRuns => Set<AutomationRun>();
     public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
     public DbSet<JobAttempt> JobAttempts => Set<JobAttempt>();
@@ -14,12 +15,23 @@ public class AutomationDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AppUser>(e =>
+        {
+            e.ToTable("AppUsers");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Email).IsUnique();
+            e.Property(x => x.Email).HasMaxLength(256);
+            e.Property(x => x.DisplayName).HasMaxLength(128);
+            e.Property(x => x.PasswordHash).HasMaxLength(256);
+        });
+
         modelBuilder.Entity<AutomationRun>(e =>
         {
             e.ToTable("AutomationRuns");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.RunId).IsUnique();
             e.HasIndex(x => x.Status);
+            e.HasIndex(x => x.UserId);
             e.HasIndex(x => x.UpdatedAt);
             e.Property(x => x.RunId).HasMaxLength(64);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);

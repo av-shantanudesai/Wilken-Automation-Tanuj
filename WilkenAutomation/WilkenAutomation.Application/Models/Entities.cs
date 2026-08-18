@@ -2,12 +2,24 @@ using WilkenAutomation.Application.Enums;
 
 namespace WilkenAutomation.Application.Models;
 
+public class AppUser
+{
+    public long Id { get; set; }
+    public string Email { get; set; } = default!;
+    public string DisplayName { get; set; } = default!;
+    public string PasswordHash { get; set; } = default!;
+    public DateTime CreatedAt { get; set; }
+}
+
 public class AutomationRun
 {
     public long Id { get; set; }
 
     /// <summary>Business id, e.g. RUN-20260818-001.</summary>
     public string RunId { get; set; } = default!;
+
+    /// <summary>Owning dashboard user. 0 = unassigned (legacy rows).</summary>
+    public long UserId { get; set; }
 
     public RunStatus Status { get; set; } = RunStatus.Created;
 

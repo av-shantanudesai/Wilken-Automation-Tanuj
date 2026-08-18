@@ -10,6 +10,14 @@ export function describeError(e: unknown): string {
       if (err.status === 0) {
         return 'Backend not reachable at localhost:5210 (or the request was blocked by CORS) - make sure the API is running, or switch to Mock mode.';
       }
+      if (err.status === 401) return 'Please sign in again.';
+      if (err.status === 409) {
+        const conflict =
+          err.error && typeof err.error === 'object' && 'message' in err.error
+            ? String((err.error as { message: unknown }).message)
+            : 'This email is already registered.';
+        return conflict;
+      }
       const detail =
         err.error && typeof err.error === 'object' && 'message' in err.error
           ? String((err.error as { message: unknown }).message)

@@ -1,4 +1,7 @@
+using System.Text;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using WilkenAutomation.Api.Hubs;
 using WilkenAutomation.Api.Services;
 using WilkenAutomation.Application.Configuration;
@@ -23,14 +26,46 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddWilkenInfrastructure(builder.Configuration);
 
+var jwtOptions = builder.Configuration.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
+builder.Services.AddSingleton(jwtOptions);
+builder.Services.AddSingleton(new JwtTokenService(jwtOptions));
+builder.Services.AddScoped<AuthService>();
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateIssuerSigningKey = true,
+            ValidateLifetime = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidAudience = jwtOptions.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
+            RoleClaimType = System.Security.Claims.ClaimTypes.Role,
+            NameClaimType = System.Security.Claims.ClaimTypes.Name,
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                    context.Token = accessToken;
+                return Task.CompletedTask;
+            }
+        };
+    });
+builder.Services.AddAuthorization();
+
 builder.Services.AddSingleton(builder.Configuration.GetSection(RunDefaults.Section).Get<RunDefaults>() ?? new RunDefaults());
 builder.Services.AddScoped<JobGeneratorService>();
 builder.Services.AddScoped<RunStatisticsService>();
 builder.Services.AddSingleton<WorkerStatusRegistry>();
 builder.Services.AddSingleton<IRealtimeNotifier, HubRealtimeNotifier>();
 
-// Allow the configured origins plus any localhost port (the Angular dev server
-// falls back to a random port when 4200 is taken).
 var configuredOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? Array.Empty<string>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .SetIsOriginAllowed(origin =>
@@ -43,11 +78,10 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
 
 var app = builder.Build();
 
-// Schema creation (MySQL: creates database + tables on first start).
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AutomationDbContext>();
-    db.Database.EnsureCreated();
+    await DatabaseSchemaPatcher.ApplyAsync(db, app.Logger);
 }
 
 if (app.Environment.IsDevelopment())
@@ -57,6 +91,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 app.MapHub<JobMonitoringHub>("/hubs/job-monitoring");
 

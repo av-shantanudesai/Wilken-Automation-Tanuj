@@ -23,6 +23,11 @@ public class JobRepository : IJobRepository
         var query = _db.ExportJobs.AsQueryable();
 
         if (!string.IsNullOrEmpty(filter.RunId)) query = query.Where(j => j.RunId == filter.RunId);
+        if (filter.UserId is > 0)
+        {
+            var runIds = _db.AutomationRuns.Where(r => r.UserId == filter.UserId.Value).Select(r => r.RunId);
+            query = query.Where(j => runIds.Contains(j.RunId));
+        }
         if (filter.Status is not null) query = query.Where(j => j.Status == filter.Status);
         if (!string.IsNullOrEmpty(filter.Client)) query = query.Where(j => j.Client == filter.Client);
         if (filter.FiscalYear is not null) query = query.Where(j => j.FiscalYear == filter.FiscalYear);

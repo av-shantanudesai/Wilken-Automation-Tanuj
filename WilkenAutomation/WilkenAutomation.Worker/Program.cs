@@ -4,6 +4,7 @@ using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Services;
 using WilkenAutomation.Application.Validators;
 using WilkenAutomation.Infrastructure.Configuration;
+using WilkenAutomation.Infrastructure.Database;
 using WilkenAutomation.Worker.Realtime;
 using WilkenAutomation.Worker.Wilken;
 using WilkenAutomation.Worker.Windows;
@@ -54,6 +55,10 @@ builder.Services.AddSingleton(wilkenOptions);
 builder.Services.AddSingleton(exportSettings);
 builder.Services.AddSingleton(workerSettings);
 
+var jwtOptions = builder.Configuration.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
+builder.Services.AddSingleton(jwtOptions);
+builder.Services.AddSingleton(new JwtTokenService(jwtOptions));
+
 builder.Services.AddWilkenInfrastructure(builder.Configuration);
 
 builder.Services.AddSingleton<IWilkenCredentialProvider, ConfigurationCredentialProvider>();
@@ -103,6 +108,12 @@ Console.WriteLine("============================================================"
 Console.WriteLine();
 
 var host = builder.Build();
+using (var scope = host.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AutomationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Schema");
+    DatabaseSchemaPatcher.ApplyAsync(db, logger).GetAwaiter().GetResult();
+}
 host.Run();
 
 static void ApplyDesktopTestDefaults(WilkenOptions options)

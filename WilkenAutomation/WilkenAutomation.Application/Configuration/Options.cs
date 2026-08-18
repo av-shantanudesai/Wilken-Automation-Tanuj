@@ -47,6 +47,16 @@ public class WorkerSettings
     public string ApiBaseUrl { get; set; } = "http://localhost:5210";
 }
 
+public class JwtOptions
+{
+    public const string Section = "Jwt";
+
+    public string Issuer { get; set; } = "WilkenAutomation";
+    public string Audience { get; set; } = "WilkenAutomation.Clients";
+    public string Key { get; set; } = "";
+    public int AccessTokenMinutes { get; set; } = 480;
+}
+
 /// <summary>Defaults used when a run request does not specify scope explicitly.</summary>
 public class RunDefaults
 {

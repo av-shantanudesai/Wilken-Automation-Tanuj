@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { ExportApi } from './export-api';
 import { HttpExportApi } from './http-export-api';
 import { MockExportApi } from './mock-export-api';
+import { AuthService } from './auth.service';
 import {
   AuditReport,
   CreateRunRequest,
@@ -27,6 +28,7 @@ const RUN_KEY = 'wilken-selected-run';
 export class ApiService implements ExportApi {
   private mockApi = inject(MockExportApi);
   private httpApi = inject(HttpExportApi);
+  private auth = inject(AuthService);
 
   readonly mode = signal<ApiMode>((localStorage.getItem(MODE_KEY) as ApiMode) || 'mock');
   readonly selectedRunId = signal<string | null>(localStorage.getItem(RUN_KEY));
@@ -35,6 +37,7 @@ export class ApiService implements ExportApi {
     this.mode.set(mode);
     localStorage.setItem(MODE_KEY, mode);
     this.selectRun(null);
+    this.auth.logout();
   }
 
   selectRun(runId: string | null): void {

@@ -1,5 +1,7 @@
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WilkenAutomation.Api.Auth;
 using WilkenAutomation.Api.Services;
 using WilkenAutomation.Application.Enums;
 using WilkenAutomation.Application.Interfaces;
@@ -9,6 +11,7 @@ using WilkenAutomation.Application.Services;
 namespace WilkenAutomation.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/runs")]
 public class RunsController : ControllerBase
 {
@@ -38,7 +41,7 @@ public class RunsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<RunSummaryDto>>> List(CancellationToken ct)
     {
-        var runs = await _runs.ListAsync(ct);
+        var runs = await _runs.ListAsync(ct, User.GetUserId());
         var result = new List<RunSummaryDto>();
         foreach (var run in runs)
             result.Add(run.ToSummaryDto(await _runs.GetCountsAsync(run.RunId, ct)));
@@ -48,7 +51,7 @@ public class RunsController : ControllerBase
     [HttpGet("{runId}")]
     public async Task<ActionResult<RunSummaryDto>> Get(string runId, CancellationToken ct)
     {
-        var run = await _runs.GetByRunIdAsync(runId, ct);
+        var run = await OwnedRunAsync(runId, ct);
         if (run is null) return NotFound();
         return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
     }
@@ -57,7 +60,7 @@ public class RunsController : ControllerBase
     public async Task<ActionResult<RunSummaryDto>> Create([FromBody] CreateRunRequestDto request, CancellationToken ct)
     {
         var config = _generator.BuildConfig(request);
-        var run = await _generator.GenerateRunAsync(config, request.Notes, request.AutoStart, ct);
+        var run = await _generator.GenerateRunAsync(config, request.Notes, request.AutoStart, ct, User.GetUserId());
         await _notifier.PublishAsync(SignalREvents.RunsChanged, new { runId = run.RunId }, ct);
         return run.ToSummaryDto(await _runs.GetCountsAsync(run.RunId, ct));
     }
@@ -65,7 +68,7 @@ public class RunsController : ControllerBase
     [HttpPost("{runId}/start")]
     public async Task<ActionResult<RunSummaryDto>> Start(string runId, CancellationToken ct)
     {
-        var run = await _runs.GetByRunIdAsync(runId, ct);
+        var run = await OwnedRunAsync(runId, ct);
         if (run is null) return NotFound();
         if (run.Status is RunStatus.Created or RunStatus.Paused or RunStatus.Completed)
         {
@@ -81,7 +84,7 @@ public class RunsController : ControllerBase
     [HttpPost("{runId}/pause")]
     public async Task<ActionResult<RunSummaryDto>> Pause(string runId, CancellationToken ct)
     {
-        var run = await _runs.GetByRunIdAsync(runId, ct);
+        var run = await OwnedRunAsync(runId, ct);
         if (run is null) return NotFound();
         if (run.Status == RunStatus.Running)
         {
@@ -95,7 +98,7 @@ public class RunsController : ControllerBase
     [HttpPost("{runId}/retry-failed")]
     public async Task<ActionResult<RunSummaryDto>> RetryFailed(string runId, CancellationToken ct)
     {
-        var run = await _runs.GetByRunIdAsync(runId, ct);
+        var run = await OwnedRunAsync(runId, ct);
         if (run is null) return NotFound();
 
         var (_, failed) = await _jobs.ListAsync(
@@ -129,7 +132,7 @@ public class RunsController : ControllerBase
     [HttpGet("{runId}/summary")]
     public async Task<ActionResult<RunStatusDto>> Status(string runId, CancellationToken ct)
     {
-        var run = await _runs.GetByRunIdAsync(runId, ct);
+        var run = await OwnedRunAsync(runId, ct);
         if (run is null) return NotFound();
 
         var counts = await _runs.GetCountsAsync(runId, ct);
@@ -178,6 +181,7 @@ public class RunsController : ControllerBase
         [FromQuery] int? fiscalYear, [FromQuery] string? department,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default)
     {
+        if (await OwnedRunAsync(runId, ct) is null) return NotFound();
         var (total, items) = await _jobs.ListAsync(new JobFilter
         {
             RunId = runId,
@@ -227,7 +231,7 @@ public class RunsController : ControllerBase
 
     private async Task<AuditReportDto?> BuildAuditAsync(string runId, CancellationToken ct)
     {
-        var run = await _runs.GetByRunIdAsync(runId, ct);
+        var run = await OwnedRunAsync(runId, ct);
         if (run is null) return null;
 
         var counts = await _runs.GetCountsAsync(runId, ct);
@@ -250,6 +254,13 @@ public class RunsController : ControllerBase
             FailedFinalJobs = jobs.Where(j => j.Status == JobStatus.FailedFinal).ToList(),
             Jobs = jobs
         };
+    }
+
+    private async Task<AutomationRun?> OwnedRunAsync(string runId, CancellationToken ct)
+    {
+        var run = await _runs.GetByRunIdAsync(runId, ct);
+        if (run is null || run.UserId != User.GetUserId()) return null;
+        return run;
     }
 
     private static string Csv(string? value) =>

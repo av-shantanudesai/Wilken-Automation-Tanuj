@@ -1,4 +1,5 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { AuthService } from './auth.service';
 import { ExportApi } from './export-api';
 import {
   AuditReport,
@@ -22,6 +23,7 @@ interface MockRunConfig {
 
 interface MockRun {
   id: string;
+  userId: number;
   status: RunSummary['status'];
   createdAt: string;
   startedAt: string | null;
@@ -58,6 +60,7 @@ const DEPARTMENTS_DEFAULT = ['Handelsrecht', 'Steuerrecht'];
  */
 @Injectable({ providedIn: 'root' })
 export class MockExportApi implements ExportApi {
+  private auth = inject(AuthService);
   private state: MockState;
   private active: ActiveWork | null = null;
   private sessionStatus = 'NotStarted';
@@ -253,7 +256,7 @@ export class MockExportApi implements ExportApi {
   // ---------------------------------------------------------------- ExportApi
 
   async listRuns(): Promise<RunSummary[]> {
-    return [...this.state.runs]
+    return [...this.ownedRuns()]
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((r) => this.toSummary(r));
   }
@@ -322,6 +325,7 @@ export class MockExportApi implements ExportApi {
 
     const run: MockRun = {
       id: runId,
+      userId: this.auth.user()?.id ?? 0,
       status: request.autoStart ? 'Running' : 'Created',
       createdAt: now,
       startedAt: request.autoStart ? now : null,
@@ -443,7 +447,7 @@ export class MockExportApi implements ExportApi {
   }
 
   async listJobs(query: JobQuery): Promise<PagedResult<Job>> {
-    let jobs = this.state.runs.flatMap((r) => r.jobs);
+    let jobs = this.ownedRuns().flatMap((r) => r.jobs);
     if (query.runId) jobs = jobs.filter((j) => j.runId === query.runId);
     if (query.status) jobs = jobs.filter((j) => j.status === query.status);
     if (query.client) jobs = jobs.filter((j) => j.client === query.client);
@@ -462,7 +466,7 @@ export class MockExportApi implements ExportApi {
   }
 
   async getJob(id: string): Promise<JobDetail> {
-    const job = this.state.runs.flatMap((r) => r.jobs).find((j) => j.id === id);
+    const job = this.ownedRuns().flatMap((r) => r.jobs).find((j) => j.id === id);
     if (!job) throw new Error(`Job ${id} not found`);
     return {
       job,
@@ -471,7 +475,7 @@ export class MockExportApi implements ExportApi {
   }
 
   async requeueJob(id: string): Promise<Job> {
-    const job = this.state.runs.flatMap((r) => r.jobs).find((j) => j.id === id);
+    const job = this.ownedRuns().flatMap((r) => r.jobs).find((j) => j.id === id);
     if (!job) throw new Error(`Job ${id} not found`);
     job.status = 'Pending';
     job.attemptCount = 0;
@@ -482,7 +486,8 @@ export class MockExportApi implements ExportApi {
   }
 
   async getLogs(runId?: string, jobId?: string, limit = 100): Promise<LogEntry[]> {
-    let logs = this.state.logs;
+    const ownedIds = new Set(this.ownedRuns().map((r) => r.id));
+    let logs = this.state.logs.filter((l) => ownedIds.has(l.runId));
     if (runId) logs = logs.filter((l) => l.runId === runId);
     if (jobId) logs = logs.filter((l) => l.jobId === jobId);
     return [...logs].sort((a, b) => b.id - a.id).slice(0, limit);
@@ -546,9 +551,15 @@ export class MockExportApi implements ExportApi {
   }
 
   private require(id: string): MockRun {
-    const run = this.state.runs.find((r) => r.id === id);
+    const run = this.ownedRuns().find((r) => r.id === id);
     if (!run) throw new Error(`Run ${id} not found`);
     return run;
+  }
+
+  private ownedRuns(): MockRun[] {
+    const userId = this.auth.user()?.id;
+    if (userId == null) return [];
+    return this.state.runs.filter((r) => r.userId === userId);
   }
 
   private fakeSha256(): string {
@@ -558,7 +569,11 @@ export class MockExportApi implements ExportApi {
   private load(): MockState {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw) as MockState;
+      if (raw) {
+        const state = JSON.parse(raw) as MockState;
+        for (const run of state.runs) run.userId ??= 0;
+        return state;
+      }
     } catch {
       /* corrupted state -> start fresh */
     }

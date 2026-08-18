@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WilkenAutomation.Api.Services;
 using WilkenAutomation.Application.Models;
@@ -5,6 +6,7 @@ using WilkenAutomation.Application.Models;
 namespace WilkenAutomation.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/worker")]
 public class WorkerController : ControllerBase
 {

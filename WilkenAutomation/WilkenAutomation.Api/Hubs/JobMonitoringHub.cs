@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using WilkenAutomation.Api.Services;
 using WilkenAutomation.Application.Models;
@@ -7,10 +8,10 @@ namespace WilkenAutomation.Api.Hubs;
 
 /// <summary>
 /// Real-time hub at /hubs/job-monitoring.
-/// Dashboard clients only listen. The worker agent connects as a client too and
-/// invokes the Publish* methods; the hub relays events to all dashboard clients.
-/// The database is always persisted first - these events are notifications only.
+/// Dashboard clients authenticate with a user JWT and only listen.
+/// The worker agent connects with a Worker-role JWT and invokes Publish*.
 /// </summary>
+[Authorize]
 public class JobMonitoringHub : Hub
 {
     private readonly WorkerStatusRegistry _registry;
@@ -20,11 +21,11 @@ public class JobMonitoringHub : Hub
         _registry = registry;
     }
 
-    /// <summary>Called by the worker agent to relay a job/run event to dashboards.</summary>
+    [Authorize(Roles = AuthRoles.Worker)]
     public Task PublishEvent(string eventName, object payload) =>
         Clients.Others.SendAsync(eventName, payload);
 
-    /// <summary>Called by the worker agent as heartbeat; cached for REST consumers.</summary>
+    [Authorize(Roles = AuthRoles.Worker)]
     public async Task PublishWorkerStatus(WorkerStatusDto status)
     {
         _registry.Update(status);
