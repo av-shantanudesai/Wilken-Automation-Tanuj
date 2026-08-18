@@ -119,6 +119,26 @@ public class AlwaysFailingAutomation : IWilkenAutomationService
     public Task RecoverSessionAsync(CancellationToken ct) => Task.CompletedTask;
 }
 
+/// <summary>Simulates the user closing Wilken mid-step: wait times out and the session is gone.</summary>
+public class TimeoutUnhealthyAutomation : IWilkenAutomationService
+{
+    public WilkenSessionStatus SessionStatus => WilkenSessionStatus.NotRunning;
+
+    public Task BeginJobAsync(ExportJob job, RunConfig config, CancellationToken ct) => Task.CompletedTask;
+    public Task EnsureSessionAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task SelectClientAsync(string client, CancellationToken ct) =>
+        throw new WaitTimeoutException("Timed out after 30s waiting for: client selection");
+    public Task OpenAssetAccountingAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task SetFiscalYearAsync(int fiscalYear, CancellationToken ct) => Task.CompletedTask;
+    public Task SelectDepartmentAsync(string department, CancellationToken ct) => Task.CompletedTask;
+    public Task StartEvaluationAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task WaitForReportReadyAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task OpenSpoolAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task<string> ExportAsync(ExportJob job, CancellationToken ct) => throw new NotSupportedException();
+    public Task<bool> IsSessionHealthyAsync(CancellationToken ct) => Task.FromResult(false);
+    public Task RecoverSessionAsync(CancellationToken ct) => Task.CompletedTask;
+}
+
 public static class TestData
 {
     public static CreateRunRequestDto SmallRunRequest(int clients = 2, int years = 2) => new()

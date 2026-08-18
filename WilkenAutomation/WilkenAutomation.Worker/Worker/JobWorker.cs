@@ -38,8 +38,15 @@ public class JobWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _state.SetStatus(WorkerStatus.Starting);
-        _logger.LogInformation("Worker agent starting (mode: {Mode}, workers: {Count}).",
-            _settings.AutomationMode, _settings.WorkerCount);
+        _logger.LogInformation(
+            "Worker agent starting (mode: {Mode}, workers: {Count}). {Hint}",
+            _settings.AutomationMode,
+            _settings.WorkerCount,
+            _settings.AutomationMode == AutomationMode.Mock
+                ? "Mock mode does not open a window. Use: dotnet run --project WilkenAutomation.Worker -- --desktop-test"
+                : _settings.AutomationMode == AutomationMode.DesktopTest
+                    ? "DesktopTest mode will launch/attach WilkenAutomation.TestDesktop."
+                    : "Wilken mode will launch/attach the real Wilken executable.");
 
         await RunStartupRecoveryAsync(stoppingToken);
 

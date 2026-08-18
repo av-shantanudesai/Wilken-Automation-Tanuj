@@ -17,5 +17,15 @@
   <ItemGroup>
     <ProjectReference Include="..\WilkenAutomation.Application\WilkenAutomation.Application.csproj" />
     <ProjectReference Include="..\WilkenAutomation.Infrastructure\WilkenAutomation.Infrastructure.csproj" />
+    <ProjectReference Include="..\WilkenAutomation.TestDesktop\WilkenAutomation.TestDesktop.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
+
+  <Target Name="CopyTestDesktop" AfterTargets="Build">
+    <ItemGroup>
+      <_TestDesktopOut Include="..\WilkenAutomation.TestDesktop\bin\$(Configuration)\net8.0-windows\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TestDesktopOut)" DestinationFolder="$(OutputPath)%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

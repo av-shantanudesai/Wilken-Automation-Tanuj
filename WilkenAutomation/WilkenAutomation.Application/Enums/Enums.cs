@@ -36,6 +36,7 @@ public enum ValidationStatus
 public enum AutomationMode
 {
     Mock,
+    DesktopTest,
     Wilken
 }
 

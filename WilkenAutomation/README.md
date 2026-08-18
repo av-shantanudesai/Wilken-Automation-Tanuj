@@ -49,8 +49,9 @@ Key decisions:
 | `WilkenAutomation.Application` | Enums, entities, DTOs, interfaces, job state machine, job generator, run statistics, file validator, mock automation, **JobExecutor** (16-step workflow), startup recovery |
 | `WilkenAutomation.Infrastructure` | EF Core DbContext (MySQL via Pomelo / SQLite for local testing), repositories with transactions, SHA-256 service |
 | `WilkenAutomation.Api` | Controllers, SignalR hub, worker status registry, DTO wire format |
-| `WilkenAutomation.Worker` | Job loop (`JobWorker`), heartbeat, SignalR publisher, screenshots, FlaUI Windows automation, UIA control-discovery POC |
-| `WilkenAutomation.Tests` | 32 tests: generation, state transitions, retry → FAILED_FINAL, restart recovery, file validation (missing/empty/valid-empty/corrupt/valid/mismatch), checksum, runtime stats, full mock lifecycle |
+| `WilkenAutomation.Worker` | Job loop, heartbeat, SignalR, FlaUI, screenshots |
+| `WilkenAutomation.TestDesktop` | Dummy Win UI for FlaUI testing (not Wilken) |
+| `WilkenAutomation.Tests` | 32 tests on the job engine (mock, no UI) |
 
 ## Running
 
@@ -80,15 +81,36 @@ to **backend** mode.
   so API + Worker can be tested without a MySQL server. An in-memory database is
   not possible here because API and worker are separate processes.
 
-### Automation mode
+### Automation mode (switch here)
 
-`Worker:AutomationMode` in `WilkenAutomation.Worker/appsettings.json`:
+The job executor is the same in all three modes. Only `IWilkenAutomationService` changes.
 
-- `Mock` (default) – full simulation: real export files, configurable failure /
-  crash / empty-period rates (accepted per run from the frontend's simulation
-  parameters). Lets you test backend + SignalR + Angular without Wilken.
-- `Wilken` – real desktop automation via FlaUI (UIA3). Requires
-  `Wilken:ExecutablePath` and mapped `Wilken:Selectors` (see POC below).
+| Mode | Config | What runs |
+|------|--------|-----------|
+| **Mock** | `DOTNET_ENVIRONMENT=Development` (default) and `Worker:AutomationMode=Mock` | No desktop UI. Simulated Wilken. |
+| **DesktopTest** | `DOTNET_ENVIRONMENT=DesktopTest` | FlaUI drives `WilkenAutomation.TestDesktop` (dummy Win UI with Client / Year / Department + export). |
+| **Wilken** | `Worker:AutomationMode=Wilken` plus real exe + selectors | FlaUI drives real Wilken CS/2. |
+
+**Desktop UI test (dummy app):**
+
+```powershell
+# Terminal 1 — API (unchanged)
+cd WilkenAutomation
+$env:ASPNETCORE_ENVIRONMENT='Development'
+dotnet run --project WilkenAutomation.Api
+
+# Terminal 2 — Worker against dummy desktop
+$env:DOTNET_ENVIRONMENT='DesktopTest'
+dotnet run --project WilkenAutomation.Worker
+```
+
+Visual Studio: start Worker profile **Worker (DesktopTest UI)**.
+
+Dummy login is `tester` / `tester`. Client `002` + department `Steuerrecht` exports a valid empty report (`SUCCESS_EMPTY`).
+
+To go back to mock: run Worker with `DOTNET_ENVIRONMENT=Development` (or set `Worker:AutomationMode` to `Mock`).
+
+To go to real Wilken later: set `AutomationMode` to `Wilken`, fill `Wilken:ExecutablePath` and `Wilken:Selectors` from `--inspect`.
 
 ### Wilken control-discovery POC (Phase 5)
 

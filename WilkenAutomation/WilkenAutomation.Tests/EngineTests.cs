@@ -194,5 +194,21 @@ public class MockLifecycleTests : IDisposable
         Assert.Equal(JobStatus.Retry, result.FinalStatus);
     }
 
+    [Fact]
+    public async Task TimeoutWhenDesktopGone_IsTreatedAsSessionLost()
+    {
+        var generator = _ctx.Generator();
+        var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+
+        var job = await _ctx.Jobs.GetNextEligibleAsync(run.RunId, CancellationToken.None);
+        var result = await _ctx.Executor(new TimeoutUnhealthyAutomation())
+            .ExecuteAsync(job!, config, CancellationToken.None);
+
+        Assert.True(result.SessionLost);
+        Assert.Equal(JobStatus.Retry, result.FinalStatus);
+        Assert.Equal("TIMEOUT", job!.ErrorCode);
+    }
+
     public void Dispose() => _ctx.Dispose();
 }

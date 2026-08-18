@@ -206,6 +206,11 @@ public class JobExecutor
         var errorCode = (ex as WilkenAutomationException)?.ErrorCode
             ?? (ex is WaitTimeoutException ? "TIMEOUT" : "UNEXPECTED_ERROR");
         var sessionLost = (ex as WilkenAutomationException)?.SessionLost ?? false;
+        if (!sessionLost)
+        {
+            try { sessionLost = !await _wilken.IsSessionHealthyAsync(ct); }
+            catch { sessionLost = true; }
+        }
 
         _logger.LogError(ex, "Job {JobId} attempt {Attempt} failed with {ErrorCode}",
             job.JobId, attempt.AttemptNumber, errorCode);

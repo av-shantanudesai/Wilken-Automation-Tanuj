@@ -3,5 +3,6 @@
   <Project Path="WilkenAutomation.Application/WilkenAutomation.Application.csproj" />
   <Project Path="WilkenAutomation.Infrastructure/WilkenAutomation.Infrastructure.csproj" />
   <Project Path="WilkenAutomation.Tests/WilkenAutomation.Tests.csproj" />
-  <Project Path="WilkenAutomation.Worker/WilkenAutomation.Worker.csproj" />
+    <Project Path="WilkenAutomation.Worker/WilkenAutomation.Worker.csproj" />
+    <Project Path="WilkenAutomation.TestDesktop/WilkenAutomation.TestDesktop.csproj" />
 </Solution>
