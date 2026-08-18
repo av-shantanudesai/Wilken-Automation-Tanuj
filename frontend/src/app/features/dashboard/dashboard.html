@@ -1,0 +1,136 @@
+<div class="page-header">
+  <h1>Dashboard</h1>
+  <p class="subtitle">Live progress of Wilken CS/2 Asset Accounting export runs — no need to watch Wilken itself.</p>
+</div>
+
+@if (error()) {
+  <div class="card error-banner">{{ error() }}</div>
+}
+
+<div class="layout">
+  <div class="card runs-card">
+    <div class="card-head">
+      <h2>Runs</h2>
+      <a routerLink="/new-run" class="btn primary small">+ New Run</a>
+    </div>
+    @if (runs().length === 0) {
+      <p class="dim">No runs yet. Create a pilot run (2 × 2 × 2 = 8 jobs) to get started.</p>
+    }
+    @for (run of runs(); track run.id) {
+      <button class="run-item" [class.selected]="run.id === api.selectedRunId()" (click)="select(run)">
+        <div class="run-item-top">
+          <span class="mono">{{ run.id }}</span>
+          <span class="badge {{ run.status }}">{{ run.status }}</span>
+        </div>
+        <div class="run-item-bottom dim">
+          {{ run.counts.terminal }} / {{ run.expectedJobCount }} jobs
+          @if (run.jobCountDeviation) {
+            <span class="err-text"> · JOB COUNT DEVIATION!</span>
+          }
+        </div>
+        <div class="mini-bar">
+          <div class="ok-seg" [style.width.%]="run.counts.total ? 100 * (run.counts.successWithData + run.counts.successEmpty) / run.counts.total : 0"></div>
+          <div class="err-seg" [style.width.%]="run.counts.total ? 100 * run.counts.failedFinal / run.counts.total : 0"></div>
+        </div>
+      </button>
+    }
+  </div>
+
+  <div class="main-col">
+    @if (status(); as s) {
+      <div class="card">
+        <div class="card-head">
+          <h2>{{ s.runId }} <span class="badge {{ s.runStatus }}">{{ s.runStatus }}</span></h2>
+          <div class="controls">
+            <button class="primary" (click)="start()" [disabled]="busy() || s.runStatus === 'Running'">Start / Resume</button>
+            <button (click)="pause()" [disabled]="busy() || s.runStatus !== 'Running'">Pause</button>
+            <button class="danger" (click)="retryFailed()" [disabled]="busy() || s.counts.failedFinal === 0">
+              Retry {{ s.counts.failedFinal }} failed
+            </button>
+          </div>
+        </div>
+
+        <div class="progress-row">
+          <div class="progress-bar">
+            <div class="fill" [style.width.%]="s.progressPercent"></div>
+          </div>
+          <div class="progress-label">
+            {{ s.counts.terminal | number }} / {{ s.counts.total | number }} ({{ s.progressPercent }}%)
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat ok"><div class="num">{{ s.counts.successWithData | number }}</div><div class="lbl">Success with data</div></div>
+          <div class="stat teal"><div class="num">{{ s.counts.successEmpty | number }}</div><div class="lbl">Success empty</div></div>
+          <div class="stat err"><div class="num">{{ s.counts.failedFinal | number }}</div><div class="lbl">Failed final</div></div>
+          <div class="stat"><div class="num">{{ s.counts.open | number }}</div><div class="lbl">Open</div></div>
+          <div class="stat"><div class="num">{{ formatMs(s.averageDurationMs) }}</div><div class="lbl">Avg runtime</div></div>
+          <div class="stat"><div class="num">{{ formatMs(s.estimatedRemainingMs) }}</div><div class="lbl">Est. remaining</div></div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Worker</h2>
+          <div class="kv">
+            <div class="kv-row">
+              <span class="k">Worker state</span>
+              <span class="v">{{ s.workerState }}</span>
+            </div>
+            <div class="kv-row">
+              <span class="k">Wilken session</span>
+              <span class="v"
+                    [class.ok-text]="s.wilkenSessionStatus === 'Ready'"
+                    [class.err-text]="s.wilkenSessionStatus === 'Crashed'">{{ s.wilkenSessionStatus }}</span>
+            </div>
+            <div class="kv-row">
+              <span class="k">Current job</span>
+              <span class="v" [title]="s.currentJobLabel">{{ s.currentJobLabel ?? '–' }}</span>
+            </div>
+            <div class="kv-row">
+              <span class="k">Job id</span>
+              <span class="v mono" [title]="s.currentJobId">{{ s.currentJobId ?? '–' }}</span>
+            </div>
+            <div class="kv-row">
+              <span class="k">Attempt</span>
+              <span class="v">{{ s.currentAttempt ?? '–' }}</span>
+            </div>
+            <div class="kv-row">
+              <span class="k">Current action</span>
+              <span class="v mono">{{ s.currentAction ?? '–' }}</span>
+            </div>
+            <div class="kv-row">
+              <span class="k">Last success</span>
+              <span class="v mono" [title]="s.lastSuccessJobId">{{ s.lastSuccessJobId ?? '–' }}</span>
+            </div>
+            <div class="kv-row">
+              <span class="k">Last error</span>
+              <span class="v err-text" [title]="s.lastError">{{ s.lastError ?? '–' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Recent events</h2>
+          <div class="log-list">
+            @for (log of logs(); track log.id) {
+              <div class="log-line">
+                <span class="dim mono">{{ log.timestamp | date: 'HH:mm:ss' }}</span>
+                <span class="mono lvl-{{ log.level }}">{{ log.level }}</span>
+                <span class="mono action">{{ log.action }}</span>
+                <span class="msg" [title]="log.message">
+                  @if (log.client) { <span class="dim">M{{ log.client }}/{{ log.fiscalYear }}</span> }
+                  {{ log.message }}
+                </span>
+              </div>
+            } @empty {
+              <p class="dim">No events yet.</p>
+            }
+          </div>
+        </div>
+      </div>
+    } @else if (!error()) {
+      <div class="card"><p class="dim">Select or create a run to see its status.</p></div>
+    }
+  </div>
+</div>

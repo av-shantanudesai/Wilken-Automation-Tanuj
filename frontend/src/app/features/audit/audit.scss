@@ -1,0 +1,57 @@
+.error-banner {
+  border-color: var(--err);
+  color: var(--err);
+  margin-bottom: 16px;
+}
+
+.summary { margin-bottom: 16px; }
+
+.summary-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+
+  h2 { margin: 0; display: flex; gap: 10px; align-items: center; }
+  .actions { display: flex; gap: 8px; }
+}
+
+.reconcile {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+
+  &.ok { background: var(--ok-soft); color: var(--ok); }
+  &.bad { background: var(--err-soft); color: var(--err); }
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+
+  .stat {
+    background: var(--bg-soft);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+
+    .num { font-size: 17px; font-weight: 700; }
+    .lbl { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+
+    &.ok .num { color: var(--ok); }
+    &.teal .num { color: var(--teal); }
+    &.err .num { color: var(--err); }
+  }
+}
+
+.time-row { margin: 12px 0 0; }
+
+.failed-card { margin-bottom: 16px; }
+
+.table-wrap {
+  max-height: 520px;
+  overflow-y: auto;
+}

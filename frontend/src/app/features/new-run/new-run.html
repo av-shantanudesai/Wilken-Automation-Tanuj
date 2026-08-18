@@ -1,0 +1,100 @@
+<div class="page-header">
+  <h1>New Export Run</h1>
+  <p class="subtitle">
+    Expected jobs are calculated dynamically: Clients × Fiscal Years × Departments.
+  </p>
+</div>
+
+@if (error()) {
+  <div class="card error-banner">{{ error() }}</div>
+}
+
+<div class="layout">
+  <div class="card">
+    <div class="preset-row">
+      <button (click)="applyPilot()">Pilot preset (2 × 2 × 2 = 8 jobs)</button>
+      <button (click)="applyFull()">Full scope (78 × 23 × 2 = 3,588 jobs)</button>
+    </div>
+
+    <h2>Scope</h2>
+    <div class="form-grid">
+      <div>
+        <label>Number of clients</label>
+        <input type="number" min="1" max="999" [ngModel]="clientCount()" (ngModelChange)="clientCount.set(+$event)" />
+      </div>
+      <div>
+        <label>Fiscal year from</label>
+        <input type="number" [ngModel]="yearFrom()" (ngModelChange)="yearFrom.set(+$event)" />
+      </div>
+      <div>
+        <label>Fiscal year to</label>
+        <input type="number" [ngModel]="yearTo()" (ngModelChange)="yearTo.set(+$event)" />
+      </div>
+      <div>
+        <label>Max attempts per job</label>
+        <input type="number" min="1" max="10" [ngModel]="maxAttempts()" (ngModelChange)="maxAttempts.set(+$event)" />
+      </div>
+    </div>
+
+    <div class="check-row">
+      <label class="check">
+        <input type="checkbox" [ngModel]="commercialLaw()" (ngModelChange)="commercialLaw.set($event)" />
+        Handelsrecht (Commercial Law)
+      </label>
+      <label class="check">
+        <input type="checkbox" [ngModel]="taxLaw()" (ngModelChange)="taxLaw.set($event)" />
+        Steuerrecht (Tax Law)
+      </label>
+      <label class="check">
+        <input type="checkbox" [ngModel]="autoStart()" (ngModelChange)="autoStart.set($event)" />
+        Start immediately
+      </label>
+    </div>
+
+    <div class="notes-row">
+      <label>Notes</label>
+      <input type="text" placeholder="e.g. Pilot acceptance run" [ngModel]="notes()" (ngModelChange)="notes.set($event)" />
+    </div>
+
+    <h2>Simulation (dummy Wilken adapter)</h2>
+    <div class="form-grid">
+      <div>
+        <label>Min job seconds</label>
+        <input type="number" min="0.5" step="0.5" [ngModel]="minJobSeconds()" (ngModelChange)="minJobSeconds.set(+$event)" />
+      </div>
+      <div>
+        <label>Max job seconds</label>
+        <input type="number" min="0.5" step="0.5" [ngModel]="maxJobSeconds()" (ngModelChange)="maxJobSeconds.set(+$event)" />
+      </div>
+      <div>
+        <label>Failure rate (0–1)</label>
+        <input type="number" min="0" max="1" step="0.01" [ngModel]="failureRate()" (ngModelChange)="failureRate.set(+$event)" />
+      </div>
+      <div>
+        <label>Crash rate (0–1)</label>
+        <input type="number" min="0" max="1" step="0.01" [ngModel]="crashRate()" (ngModelChange)="crashRate.set(+$event)" />
+      </div>
+      <div>
+        <label>Empty-period rate (0–1)</label>
+        <input type="number" min="0" max="1" step="0.01" [ngModel]="emptyRate()" (ngModelChange)="emptyRate.set(+$event)" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card summary-card">
+    <h2>Expected job count</h2>
+    <div class="calc">
+      <span>{{ clientCount() }}</span> clients ×
+      <span>{{ yearCount() }}</span> years ×
+      <span>{{ departmentCount() }}</span> departments
+    </div>
+    <div class="total" [class.err-text]="expectedJobs() === 0">{{ expectedJobs() }}</div>
+    <p class="dim">
+      Every job = one client + one fiscal year + one department.
+      Default order: Client → Fiscal Year → Commercial Law → Tax Law.
+    </p>
+    <button class="primary create-btn" (click)="create()" [disabled]="busy() || expectedJobs() === 0">
+      {{ busy() ? 'Generating…' : 'Generate ' + expectedJobs() + ' jobs' }}
+    </button>
+  </div>
+</div>

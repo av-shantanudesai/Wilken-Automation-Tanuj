@@ -1,0 +1,112 @@
+<div class="page-header">
+  <h1>Jobs</h1>
+  <p class="subtitle">
+    Persistent job queue for run <span class="mono">{{ api.selectedRunId() ?? '(none selected)' }}</span>
+  </p>
+</div>
+
+@if (error()) {
+  <div class="card error-banner">{{ error() }}</div>
+}
+
+<div class="card">
+  <div class="filter-row">
+    <div>
+      <label>Status</label>
+      <select [ngModel]="statusFilter()" (ngModelChange)="statusFilter.set($event); applyFilters()">
+        <option value="">All</option>
+        @for (s of statuses; track s) {
+          <option [value]="s">{{ s }}</option>
+        }
+      </select>
+    </div>
+    <div>
+      <label>Client</label>
+      <input placeholder="e.g. 001" [ngModel]="clientFilter()" (ngModelChange)="clientFilter.set($event); applyFilters()" />
+    </div>
+    <div>
+      <label>Fiscal year</label>
+      <input type="number" placeholder="e.g. 2003"
+             [ngModel]="yearFilter()" (ngModelChange)="yearFilter.set($event ? +$event : null); applyFilters()" />
+    </div>
+    <div class="spacer"></div>
+    <div class="count dim">{{ total() }} job(s)</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Job ID</th>
+        <th>Client</th>
+        <th>Year</th>
+        <th>Department</th>
+        <th>Status</th>
+        <th>Att.</th>
+        <th>Records</th>
+        <th>Duration</th>
+        <th>SHA-256</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (job of jobs(); track job.id) {
+        <tr class="row" (click)="open(job)">
+          <td class="dim">{{ job.orderIndex + 1 }}</td>
+          <td class="mono">{{ job.id }}</td>
+          <td>{{ job.client }}</td>
+          <td>{{ job.fiscalYear }}</td>
+          <td>{{ job.department }}</td>
+          <td><span class="badge {{ job.status }}">{{ job.status }}</span></td>
+          <td>{{ job.attemptCount }}</td>
+          <td>{{ job.recordCount ?? '–' }}</td>
+          <td>{{ job.durationMs != null ? (job.durationMs | number) + ' ms' : '–' }}</td>
+          <td class="mono" [title]="job.sha256">{{ shortSha(job.sha256) }}</td>
+          <td>
+            @if (job.status === 'FailedFinal') {
+              <button class="small" (click)="requeue(job, $event)">Requeue</button>
+            }
+          </td>
+        </tr>
+        @if (detail()?.job?.id === job.id) {
+          <tr class="detail-row">
+            <td colspan="11">
+              <div class="detail">
+                <div class="detail-grid">
+                  <div><label>File</label><span class="mono">{{ job.filePath ?? '–' }}</span></div>
+                  <div><label>Size</label><span>{{ job.fileSizeBytes != null ? (job.fileSizeBytes | number) + ' bytes' : '–' }}</span></div>
+                  <div><label>Validation</label><span>{{ job.validationOutcome }} — {{ job.validationDetail ?? '–' }}</span></div>
+                  @if (job.errorMessage) {
+                    <div><label>Error</label><span class="err-text">[{{ job.errorCode }}] {{ job.errorMessage }}</span></div>
+                  }
+                  @if (job.screenshotPath) {
+                    <div><label>Diagnostics</label><span class="mono">{{ job.screenshotPath }}</span></div>
+                  }
+                </div>
+                <h2>Job log</h2>
+                <div class="log-list">
+                  @for (log of detail()!.logs; track log.id) {
+                    <div class="log-line">
+                      <span class="dim mono">{{ log.timestamp | date: 'HH:mm:ss.SSS' }}</span>
+                      <span class="mono lvl-{{ log.level }}">{{ log.level }}</span>
+                      <span class="mono action">{{ log.action }}</span>
+                      <span>{{ log.message }}</span>
+                    </div>
+                  }
+                </div>
+              </div>
+            </td>
+          </tr>
+        }
+      } @empty {
+        <tr><td colspan="11" class="dim">No jobs match the current filter.</td></tr>
+      }
+    </tbody>
+  </table>
+
+  <div class="pager">
+    <button class="small" (click)="goto(page() - 1)" [disabled]="page() <= 1">‹ Prev</button>
+    <span class="dim">Page {{ page() }} / {{ totalPages() }}</span>
+    <button class="small" (click)="goto(page() + 1)" [disabled]="page() >= totalPages()">Next ›</button>
+  </div>
+</div>

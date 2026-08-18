@@ -1,0 +1,186 @@
+# WilkenAutomation – Wilken CS/2 Asset Accounting Export Engine
+
+.NET 8 backend that automates the Wilken CS/2 desktop application, processes the
+complete export queue (Client × Fiscal Year × Department), persists all state in
+MySQL, recovers automatically from crashes/restarts, validates every export,
+calculates SHA-256 checksums, keeps a full audit trail, and streams real-time
+updates to the existing Angular 21 dashboard via SignalR.
+
+## Architecture
+
+```text
+Angular 21 Dashboard (frontend/)
+        ↑  REST (http://localhost:5210/api) + SignalR (/hubs/job-monitoring)
+        │
+WilkenAutomation.Api          ← REST, SignalR hub, run/job management, audit, monitoring
+        │
+        ├── MySQL (source of truth: AutomationRuns, ExportJobs, JobAttempts, AutomationLogs)
+        │
+WilkenAutomation.Worker       ← separate process in the interactive Windows session
+        │                       (job loop, restart recovery, screenshots, session recovery)
+        ↓
+IWilkenAutomationService      ← Mock (simulation) | Windows (FlaUI / UIA3 desktop automation)
+        ↓
+Wilken CS/2 → report/spool → export file → validation → SHA-256 → SUCCESS / RETRY / FAILED_FINAL
+```
+
+Key decisions:
+
+- **API and Worker are separate processes.** Desktop automation requires an
+  interactive Windows session; the API can run as a service/IIS. The worker owns
+  Wilken, the API owns HTTP. They share only the database (via
+  `WilkenAutomation.Infrastructure`) and the SignalR hub.
+- **Database first, SignalR second.** Every state change is persisted before the
+  corresponding event is published. SignalR is purely a notification channel; a
+  lost connection never loses state.
+- **The worker publishes through the hub.** It connects to
+  `/hubs/job-monitoring` as a SignalR *client* and invokes `PublishEvent` /
+  `PublishWorkerStatus`; the hub relays to dashboard clients and caches the
+  worker heartbeat for `GET /api/worker/status`.
+- **All Wilken interaction is behind `IWilkenAutomationService`.**
+  `MockWilkenAutomationService` (full simulation incl. failures/crashes/empty
+  periods) and `WindowsWilkenAutomationService` (FlaUI UIA3) are interchangeable;
+  the job executor and worker loop are identical for both.
+
+## Projects
+
+| Project | Responsibility |
+| ------- | -------------- |
+| `WilkenAutomation.Application` | Enums, entities, DTOs, interfaces, job state machine, job generator, run statistics, file validator, mock automation, **JobExecutor** (16-step workflow), startup recovery |
+| `WilkenAutomation.Infrastructure` | EF Core DbContext (MySQL via Pomelo / SQLite for local testing), repositories with transactions, SHA-256 service |
+| `WilkenAutomation.Api` | Controllers, SignalR hub, worker status registry, DTO wire format |
+| `WilkenAutomation.Worker` | Job loop (`JobWorker`), heartbeat, SignalR publisher, screenshots, FlaUI Windows automation, UIA control-discovery POC |
+| `WilkenAutomation.Tests` | 32 tests: generation, state transitions, retry → FAILED_FINAL, restart recovery, file validation (missing/empty/valid-empty/corrupt/valid/mismatch), checksum, runtime stats, full mock lifecycle |
+
+## Running
+
+Two processes, in this order:
+
+```powershell
+# 1. API (creates the database schema on first start)
+cd WilkenAutomation
+$env:ASPNETCORE_ENVIRONMENT='Development'
+dotnet run --project WilkenAutomation.Api
+
+# 2. Worker agent (interactive session)
+$env:DOTNET_ENVIRONMENT='Development'
+dotnet run --project WilkenAutomation.Worker
+```
+
+Then run the Angular app (`cd frontend; npm start`) and switch the header toggle
+to **backend** mode.
+
+### Database
+
+- **Production:** `Database:Provider = "MySql"` (appsettings.json) with the
+  connection string pointing at your MySQL server. Schema is created
+  automatically on API start.
+- **Local testing:** the `Development` environment uses
+  `Database:Provider = "Sqlite"` (`wilken_automation.db` in the solution folder)
+  so API + Worker can be tested without a MySQL server. An in-memory database is
+  not possible here because API and worker are separate processes.
+
+### Automation mode
+
+`Worker:AutomationMode` in `WilkenAutomation.Worker/appsettings.json`:
+
+- `Mock` (default) – full simulation: real export files, configurable failure /
+  crash / empty-period rates (accepted per run from the frontend's simulation
+  parameters). Lets you test backend + SignalR + Angular without Wilken.
+- `Wilken` – real desktop automation via FlaUI (UIA3). Requires
+  `Wilken:ExecutablePath` and mapped `Wilken:Selectors` (see POC below).
+
+### Wilken control-discovery POC (Phase 5)
+
+Before real automation, inspect the actual Wilken CS/2 controls:
+
+```powershell
+dotnet run --project WilkenAutomation.Worker -- --inspect "Wilken CS/2"
+```
+
+This dumps the UIA tree (ControlType, AutomationId, Name, ClassName, handle,
+enabled state) to console + `wilken-controls-<timestamp>.txt`. Map the findings
+into `Wilken:Selectors` (format `AutomationId:...`, `Name:...` or
+`ClassName:...`). Unmapped steps fail with `CONTROL_NOT_MAPPED` instead of blind
+clicking; fixed coordinates are never used.
+
+### Credentials
+
+Never in source code. `Wilken:Username` via configuration/user-secrets, password
+via the `WILKEN_PASSWORD` environment variable (or user-secrets). Provided
+through `IWilkenCredentialProvider`, never logged and never exposed by the API.
+
+## REST API
+
+Frontend-compatible endpoints (unchanged contract) plus the new ones:
+
+```text
+GET  /api/runs                          GET  /api/runs/{runId}
+POST /api/runs                          POST /api/runs/{runId}/start
+POST /api/runs/{runId}/pause            POST /api/runs/{runId}/retry-failed
+GET  /api/runs/{runId}/status           GET  /api/runs/{runId}/summary   (alias)
+GET  /api/runs/{runId}/audit            GET  /api/runs/{runId}/audit.csv
+GET  /api/runs/{runId}/jobs
+
+GET  /api/jobs?runId&status&client&fiscalYear&department&page&pageSize
+GET  /api/jobs/current                  GET  /api/jobs/{jobId}
+POST /api/jobs/{jobId}/requeue          POST /api/jobs/{jobId}/retry     (alias)
+
+GET  /api/logs?runId&jobId&limit
+GET  /api/worker/status
+```
+
+## SignalR
+
+Hub: `/hubs/job-monitoring`. Events:
+`JobStarted, JobStatusChanged, JobApplicationStateChanged, JobCompleted,
+JobFailed, JobRetrying, RunProgressChanged, DashboardSummaryChanged,
+WorkerStatusChanged, WilkenSessionChanged, LastErrorChanged, LastSuccessChanged,
+RunsChanged`.
+
+Job events carry the same JSON shape as the REST `Job` model; the application
+state events additionally carry `applicationState` (UPPER_SNAKE, e.g.
+`WAITING_FOR_REPORT`) and `runtimeSeconds`. Runtime ticks are SignalR-only —
+no per-second database writes.
+
+## Frontend contract alignment (documented decisions)
+
+The existing Angular models were inspected first; the backend adopted them:
+
+- **Job/run status wire values** stay PascalCase (`SuccessWithData`,
+  `FailedFinal`, …) as the frontend's TypeScript unions expect — these map 1:1
+  to the specification's `SUCCESS_WITH_DATA` / `FAILED_FINAL` etc.
+- **Field naming** follows the frontend (`fileSizeBytes`, `validationOutcome`,
+  `screenshotPath`); the database columns follow the specification
+  (`FileSize`, `ValidationStatus`, `LastScreenshotPath`) and are mapped in DTOs.
+- **Departments** keep the frontend values `Handelsrecht` (Commercial Law) and
+  `Steuerrecht` (Tax Law).
+- **Application states / worker states** are sent UPPER_SNAKE per specification;
+  the dashboard displays them as free text, no change required.
+- **Frontend change made (additive only):** `@microsoft/signalr` client +
+  `RealtimeService`; the dashboard now refreshes immediately on hub events in
+  backend mode. Polling remains as fallback. No visual redesign.
+
+## Reliability model
+
+- Job lifecycle `PENDING → RUNNING → SUCCESS_WITH_DATA | SUCCESS_EMPTY | FAILED →
+  RETRY → … → FAILED_FINAL` enforced by a state machine; max attempts
+  configurable per run (default 3). A FAILED_FINAL job never stops the queue.
+- State-based waiting everywhere (`WaitUntilAsync`, file-stability detection);
+  no fixed sleeps for report readiness.
+- Session recovery: crash/not-responding detection → screenshot → attempt marked
+  failed → close/restart Wilken → retry from a defined checkpoint. Unknown
+  modal dialogs abort the attempt safely (never random keypresses).
+- Restart recovery on worker start: stale RUNNING jobs → RETRY (attempt marked
+  `Interrupted`); previously successful jobs are re-verified (file exists +
+  SHA-256 matches) and only re-queued if verification fails. Validated exports
+  are never regenerated and never silently overwritten (retries get
+  attempt-suffixed filenames).
+- Exports land in `Exports/Mandant_<client>/<year>/Mandant_<client>_<year>_<department>.<ext>`
+  and are never modified after checksum calculation.
+
+## Note on the previous prototype
+
+`backend/WilkenExport.Api` is the earlier single-process prototype and is
+superseded by this solution. It is no longer needed for running the system (it
+also binds the same port 5210 — do not run both at once).
