@@ -15,18 +15,28 @@ public class RunRepository : IRunRepository
         _db = db;
     }
 
-    public async Task<AutomationRun> CreateWithJobsAsync(AutomationRun run, IEnumerable<ExportJob> jobs, CancellationToken ct)
+    public Task<AutomationRun> CreateWithJobsAsync(AutomationRun run, IEnumerable<ExportJob> jobs, CancellationToken ct) =>
+        ExecuteInTransactionAsync(async () =>
+        {
+            _db.AutomationRuns.Add(run);
+            _db.ExportJobs.AddRange(jobs);
+            await _db.SaveChangesAsync(ct);
+            return run;
+        }, ct);
+
+    private async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> operation, CancellationToken ct)
     {
-        // Relational providers get a transaction; InMemory (tests) does not support them.
-        var useTransaction = _db.Database.IsRelational();
-        await using var tx = useTransaction ? await _db.Database.BeginTransactionAsync(ct) : null;
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            if (!_db.Database.IsRelational())
+                return await operation();
 
-        _db.AutomationRuns.Add(run);
-        _db.ExportJobs.AddRange(jobs);
-        await _db.SaveChangesAsync(ct);
-
-        if (tx is not null) await tx.CommitAsync(ct);
-        return run;
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+            var result = await operation();
+            await tx.CommitAsync(ct);
+            return result;
+        });
     }
 
     public Task<AutomationRun?> GetByRunIdAsync(string runId, CancellationToken ct) =>

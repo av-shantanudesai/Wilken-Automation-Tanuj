@@ -97,16 +97,28 @@ public class JobRepository : IJobRepository
 
     public async Task SaveJobTransitionAsync(ExportJob job, JobAttempt? attempt, string runId, CancellationToken ct)
     {
-        var useTransaction = _db.Database.IsRelational();
-        await using var tx = useTransaction ? await _db.Database.BeginTransactionAsync(ct) : null;
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            if (_db.Database.IsRelational())
+            {
+                await using var tx = await _db.Database.BeginTransactionAsync(ct);
+                await PersistTransitionAsync(job, attempt, runId, ct);
+                await tx.CommitAsync(ct);
+            }
+            else
+            {
+                await PersistTransitionAsync(job, attempt, runId, ct);
+            }
+        });
+    }
 
+    private async Task PersistTransitionAsync(ExportJob job, JobAttempt? attempt, string runId, CancellationToken ct)
+    {
         _db.ExportJobs.Update(job);
         if (attempt is not null) _db.JobAttempts.Update(attempt);
         await _db.SaveChangesAsync(ct);
-
         await RefreshRunCountersInternalAsync(runId, ct);
-
-        if (tx is not null) await tx.CommitAsync(ct);
     }
 
     private async Task RefreshRunCountersInternalAsync(string runId, CancellationToken ct)
