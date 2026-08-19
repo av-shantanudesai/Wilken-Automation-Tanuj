@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using WilkenAutomation.Application.Enums;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Models;
+using WilkenAutomation.Application.Services;
 using WilkenAutomation.Infrastructure.Database;
 
 namespace WilkenAutomation.Infrastructure.Repositories;
@@ -23,7 +24,7 @@ public class JobRepository : IJobRepository
         var query = _db.ExportJobs.AsQueryable();
 
         if (!string.IsNullOrEmpty(filter.RunId)) query = query.Where(j => j.RunId == filter.RunId);
-        if (filter.UserId is > 0)
+        if (filter.UserId is not null)
         {
             var runIds = _db.AutomationRuns.Where(r => r.UserId == filter.UserId.Value).Select(r => r.RunId);
             query = query.Where(j => runIds.Contains(j.RunId));
@@ -58,6 +59,23 @@ public class JobRepository : IJobRepository
         _db.ExportJobs.Where(j => j.Status == JobStatus.Running)
             .OrderByDescending(j => j.StartTime)
             .FirstOrDefaultAsync(ct);
+
+    public async Task<(ExportJob? LastSuccess, ExportJob? LastError)> GetStatusMarkersAsync(string runId, CancellationToken ct)
+    {
+        var lastSuccess = await _db.ExportJobs
+            .Where(j => j.RunId == runId
+                        && (j.Status == JobStatus.SuccessWithData || j.Status == JobStatus.SuccessEmpty)
+                        && j.EndTime != null)
+            .OrderByDescending(j => j.EndTime)
+            .FirstOrDefaultAsync(ct);
+
+        var lastError = await _db.ExportJobs
+            .Where(j => j.RunId == runId && j.ErrorMessage != null)
+            .OrderByDescending(j => j.UpdatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        return (lastSuccess, lastError);
+    }
 
     public Task<List<ExportJob>> GetStaleRunningAsync(CancellationToken ct) =>
         _db.ExportJobs.Where(j => j.Status == JobStatus.Running).ToListAsync(ct);
@@ -137,23 +155,8 @@ public class JobRepository : IJobRepository
             .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToListAsync(ct);
 
-        int Of(JobStatus s) => groups.FirstOrDefault(g => g.Status == s)?.Count ?? 0;
-        var total = groups.Sum(g => g.Count);
-        var terminal = Of(JobStatus.SuccessWithData) + Of(JobStatus.SuccessEmpty) + Of(JobStatus.FailedFinal);
-
-        run.TotalJobs = total;
-        run.SuccessfulWithData = Of(JobStatus.SuccessWithData);
-        run.SuccessfulEmpty = Of(JobStatus.SuccessEmpty);
-        run.FailedJobs = Of(JobStatus.FailedFinal);
-        run.PendingJobs = Of(JobStatus.Pending) + Of(JobStatus.Retry);
-        run.CompletedJobs = terminal;
-        run.UpdatedAt = DateTime.UtcNow;
-
-        if (run.Status == RunStatus.Running && total > 0 && terminal == total)
-        {
-            run.Status = RunStatus.Completed;
-            run.CompletedAt = DateTime.UtcNow;
-        }
+        var counts = RunCounters.FromGroups(groups.Select(g => (g.Status, g.Count)));
+        RunCounters.ApplyToRun(run, counts);
 
         await _db.SaveChangesAsync(ct);
     }

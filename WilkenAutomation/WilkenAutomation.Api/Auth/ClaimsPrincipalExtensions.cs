@@ -5,11 +5,14 @@ namespace WilkenAutomation.Api.Auth;
 
 public static class ClaimsPrincipalExtensions
 {
-    public static long GetUserId(this ClaimsPrincipal user)
+    /// <summary>Dashboard user id. Throws if the principal is not a signed-in user.</summary>
+    public static long GetRequiredUserId(this ClaimsPrincipal user)
     {
         var raw = user.FindFirstValue(JwtTokenService.UserIdClaim)
                   ?? user.FindFirstValue(ClaimTypes.NameIdentifier)
                   ?? user.FindFirstValue("sub");
-        return long.TryParse(raw, out var id) ? id : 0;
+        if (!long.TryParse(raw, out var id) || id <= 0)
+            throw new UnauthorizedAccessException("Authenticated user identity is missing or invalid.");
+        return id;
     }
 }

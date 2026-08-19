@@ -13,7 +13,7 @@ public class RetryTests : IDisposable
     {
         var generator = _ctx.Generator();
         var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
-        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
         var executor = _ctx.Executor(new AlwaysFailingAutomation());
 
         var job = await _ctx.Jobs.GetNextEligibleAsync(run.RunId, CancellationToken.None);
@@ -49,7 +49,7 @@ public class RestartRecoveryTests : IDisposable
     {
         var generator = _ctx.Generator();
         var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
-        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
 
         // Simulate a crash mid-attempt: job RUNNING with an open attempt.
         var job = (await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None)).First();
@@ -77,7 +77,7 @@ public class RestartRecoveryTests : IDisposable
     {
         var generator = _ctx.Generator();
         var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
-        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
 
         var jobs = await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None);
         var missing = jobs[0];
@@ -106,7 +106,7 @@ public class RestartRecoveryTests : IDisposable
     {
         var generator = _ctx.Generator();
         var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
-        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
 
         var job = (await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None)).First();
         var path = Path.Combine(_ctx.WorkDirectory, "tampered.csv");
@@ -135,7 +135,7 @@ public class MockLifecycleTests : IDisposable
     {
         var generator = _ctx.Generator();
         var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
-        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
         var executor = _ctx.Executor(_ctx.MockAutomation());
 
         var job = await _ctx.Jobs.GetNextEligibleAsync(run.RunId, CancellationToken.None);
@@ -169,7 +169,7 @@ public class MockLifecycleTests : IDisposable
         var request = TestData.SmallRunRequest(1, 1);
         request.Simulation!.EmptyRate = 1.0;
         var config = generator.BuildConfig(request);
-        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
 
         var job = await _ctx.Jobs.GetNextEligibleAsync(run.RunId, CancellationToken.None);
         var result = await _ctx.Executor(_ctx.MockAutomation()).ExecuteAsync(job!, config, CancellationToken.None);
@@ -184,7 +184,7 @@ public class MockLifecycleTests : IDisposable
     {
         var generator = _ctx.Generator();
         var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
-        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
 
         var job = await _ctx.Jobs.GetNextEligibleAsync(run.RunId, CancellationToken.None);
         var result = await _ctx.Executor(new AlwaysFailingAutomation(sessionLost: true))
@@ -199,7 +199,7 @@ public class MockLifecycleTests : IDisposable
     {
         var generator = _ctx.Generator();
         var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
-        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
 
         var job = await _ctx.Jobs.GetNextEligibleAsync(run.RunId, CancellationToken.None);
         var result = await _ctx.Executor(new TimeoutUnhealthyAutomation())

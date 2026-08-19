@@ -1,3 +1,4 @@
+// DEPRECATED: this project is superseded by WilkenAutomation/. Do not add features here.
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using WilkenExport.Api.Adapters;

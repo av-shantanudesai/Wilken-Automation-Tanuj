@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../environments/environment';
 import { ExportApi } from './export-api';
 import {
   AuditReport,
@@ -14,7 +15,7 @@ import {
   RunSummary,
 } from './models';
 
-export const API_BASE_URL = 'http://localhost:5210/api';
+export const API_BASE_URL = environment.apiBaseUrl;
 
 @Injectable({ providedIn: 'root' })
 export class HttpExportApi implements ExportApi {

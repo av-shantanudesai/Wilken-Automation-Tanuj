@@ -54,7 +54,12 @@ public class JwtOptions
     public string Issuer { get; set; } = "WilkenAutomation";
     public string Audience { get; set; } = "WilkenAutomation.Clients";
     public string Key { get; set; } = "";
-    public int AccessTokenMinutes { get; set; } = 480;
+    /// <summary>Short-lived access JWT. Clamped to 5–60 minutes.</summary>
+    public int AccessTokenMinutes { get; set; } = 15;
+    /// <summary>Refresh token lifetime in days. Clamped to 1–30.</summary>
+    public int RefreshTokenDays { get; set; } = 7;
+    /// <summary>Worker-to-API JWT lifetime in hours. Clamped to 1–24.</summary>
+    public int WorkerTokenHours { get; set; } = 12;
 }
 
 /// <summary>Defaults used when a run request does not specify scope explicitly.</summary>

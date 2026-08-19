@@ -8,6 +8,7 @@ public class AutomationDbContext : DbContext
     public AutomationDbContext(DbContextOptions<AutomationDbContext> options) : base(options) { }
 
     public DbSet<AppUser> AppUsers => Set<AppUser>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AutomationRun> AutomationRuns => Set<AutomationRun>();
     public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
     public DbSet<JobAttempt> JobAttempts => Set<JobAttempt>();
@@ -23,6 +24,18 @@ public class AutomationDbContext : DbContext
             e.Property(x => x.Email).HasMaxLength(256);
             e.Property(x => x.DisplayName).HasMaxLength(128);
             e.Property(x => x.PasswordHash).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<RefreshToken>(e =>
+        {
+            e.ToTable("RefreshTokens");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => new { x.UserId, x.FamilyId });
+            e.Property(x => x.TokenHash).HasMaxLength(64);
+            e.Property(x => x.FamilyId).HasMaxLength(32);
+            e.Property(x => x.CreatedByIp).HasMaxLength(64);
+            e.Ignore(x => x.IsActive);
         });
 
         modelBuilder.Entity<AutomationRun>(e =>

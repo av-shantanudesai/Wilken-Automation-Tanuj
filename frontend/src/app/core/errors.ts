@@ -1,3 +1,5 @@
+import { environment } from '../../environments/environment';
+
 /**
  * Human-readable message from any thrown value, including Angular's
  * HttpErrorResponse (which is not an instanceof Error and would otherwise
@@ -8,9 +10,10 @@ export function describeError(e: unknown): string {
     const err = e as { status?: number; message?: unknown; error?: unknown };
     if (typeof err.status === 'number') {
       if (err.status === 0) {
-        return 'Backend not reachable at localhost:5210 (or the request was blocked by CORS) - make sure the API is running, or switch to Mock mode.';
+        return `Backend not reachable at ${environment.apiBaseUrl} (or the request was blocked by CORS) - make sure the API is running, or switch to Mock mode.`;
       }
       if (err.status === 401) return 'Please sign in again.';
+      if (err.status === 429) return 'Too many sign-in attempts. Wait a minute and try again.';
       if (err.status === 409) {
         const conflict =
           err.error && typeof err.error === 'object' && 'message' in err.error

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using WilkenAutomation.Api.Auth;
 using WilkenAutomation.Api.Services;
 using WilkenAutomation.Application.Models;
 using WilkenAutomation.Application.Services;
@@ -8,8 +9,8 @@ namespace WilkenAutomation.Api.Hubs;
 
 /// <summary>
 /// Real-time hub at /hubs/job-monitoring.
-/// Dashboard clients authenticate with a user JWT and only listen.
-/// The worker agent connects with a Worker-role JWT and invokes Publish*.
+/// Dashboard clients join a per-user group and only receive their own job events.
+/// Worker status is shared (one worker process). Publish* requires the Worker role.
 /// </summary>
 [Authorize]
 public class JobMonitoringHub : Hub
@@ -21,16 +22,30 @@ public class JobMonitoringHub : Hub
         _registry = registry;
     }
 
+    public override async Task OnConnectedAsync()
+    {
+        if (Context.User?.IsInRole(AuthRoles.Worker) == true)
+            await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Workers);
+        else
+            await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.User(Context.User!.GetRequiredUserId()));
+
+        await base.OnConnectedAsync();
+    }
+
     [Authorize(Roles = AuthRoles.Worker)]
-    public Task PublishEvent(string eventName, object payload) =>
-        Clients.Others.SendAsync(eventName, payload);
+    public Task PublishEvent(string eventName, object payload, long userId)
+    {
+        if (userId <= 0 || string.IsNullOrWhiteSpace(eventName))
+            return Task.CompletedTask;
+        return Clients.Group(HubGroups.User(userId)).SendAsync(eventName, payload);
+    }
 
     [Authorize(Roles = AuthRoles.Worker)]
     public async Task PublishWorkerStatus(WorkerStatusDto status)
     {
         _registry.Update(status);
-        await Clients.Others.SendAsync(SignalREvents.WorkerStatusChanged, status);
-        await Clients.Others.SendAsync(SignalREvents.WilkenSessionChanged,
+        await Clients.All.SendAsync(SignalREvents.WorkerStatusChanged, status);
+        await Clients.All.SendAsync(SignalREvents.WilkenSessionChanged,
             new { wilkenSessionStatus = status.WilkenSessionStatus });
     }
 }

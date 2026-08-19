@@ -17,6 +17,8 @@ public record StatusCountsDto(
     int SuccessEmpty,
     int FailedFinal)
 {
+    public static StatusCountsDto Empty { get; } = new(0, 0, 0, 0, 0, 0, 0);
+
     public int Terminal => SuccessWithData + SuccessEmpty + FailedFinal;
     public int Open => Pending + Running + Retry;
 }
@@ -174,7 +176,19 @@ public class AuthResponseDto
 {
     public string Token { get; set; } = "";
     public DateTime ExpiresAt { get; set; }
+    public string RefreshToken { get; set; } = "";
+    public DateTime RefreshExpiresAt { get; set; }
     public AuthUserDto User { get; set; } = default!;
+}
+
+public class RefreshRequestDto
+{
+    public string? RefreshToken { get; set; }
+}
+
+public class LogoutRequestDto
+{
+    public string? RefreshToken { get; set; }
 }
 
 /// <summary>Heartbeat the worker publishes; also served via GET /api/worker/status.</summary>

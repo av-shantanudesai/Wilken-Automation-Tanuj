@@ -17,7 +17,7 @@
       <div class="mode-toggle"
            [title]="api.mode() === 'mock'
              ? 'Simulation runs entirely in this browser tab and persists to localStorage.'
-             : 'Talks to the .NET backend at localhost:5210.'">
+            : 'Talks to the .NET backend API.'">
         <button [class.selected]="api.mode() === 'mock'" (click)="api.setMode('mock')">Mock</button>
         <button [class.selected]="api.mode() === 'backend'" (click)="api.setMode('backend')">Backend API</button>
       </div>

@@ -41,11 +41,10 @@ public class RunsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<RunSummaryDto>>> List(CancellationToken ct)
     {
-        var runs = await _runs.ListAsync(ct, User.GetUserId());
-        var result = new List<RunSummaryDto>();
-        foreach (var run in runs)
-            result.Add(run.ToSummaryDto(await _runs.GetCountsAsync(run.RunId, ct)));
-        return result;
+        var userId = User.GetRequiredUserId();
+        var runs = await _runs.ListAsync(ct, userId);
+        var counts = await _runs.GetCountsForRunsAsync(runs.Select(r => r.RunId), ct);
+        return runs.Select(run => run.ToSummaryDto(counts.GetValueOrDefault(run.RunId, StatusCountsDto.Empty))).ToList();
     }
 
     [HttpGet("{runId}")]
@@ -60,8 +59,8 @@ public class RunsController : ControllerBase
     public async Task<ActionResult<RunSummaryDto>> Create([FromBody] CreateRunRequestDto request, CancellationToken ct)
     {
         var config = _generator.BuildConfig(request);
-        var run = await _generator.GenerateRunAsync(config, request.Notes, request.AutoStart, ct, User.GetUserId());
-        await _notifier.PublishAsync(SignalREvents.RunsChanged, new { runId = run.RunId }, ct);
+        var run = await _generator.GenerateRunAsync(config, request.Notes, request.AutoStart, ct, User.GetRequiredUserId());
+        await _notifier.PublishAsync(SignalREvents.RunsChanged, new { runId = run.RunId }, ct, run.UserId);
         return run.ToSummaryDto(await _runs.GetCountsAsync(run.RunId, ct));
     }
 
@@ -76,7 +75,7 @@ public class RunsController : ControllerBase
             run.StartedAt ??= DateTime.UtcNow;
             run.CompletedAt = null;
             await _runs.UpdateAsync(run, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct);
+            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId);
         }
         return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
     }
@@ -90,7 +89,7 @@ public class RunsController : ControllerBase
         {
             run.Status = RunStatus.Paused;
             await _runs.UpdateAsync(run, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct);
+            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId);
         }
         return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
     }
@@ -122,7 +121,7 @@ public class RunsController : ControllerBase
                 await _runs.UpdateAsync(run, ct);
             }
             await _runs.RefreshCountersAsync(runId, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct);
+            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId);
         }
 
         return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
@@ -142,13 +141,7 @@ public class RunsController : ControllerBase
         var current = await _jobs.GetCurrentRunningAsync(ct);
         if (current is not null && current.RunId != runId) current = null;
 
-        var all = await _jobs.GetAllForRunAsync(runId, ct);
-        var lastSuccess = all
-            .Where(j => j.Status is JobStatus.SuccessWithData or JobStatus.SuccessEmpty && j.EndTime != null)
-            .MaxBy(j => j.EndTime);
-        var lastError = all
-            .Where(j => j.ErrorMessage != null)
-            .MaxBy(j => j.UpdatedAt);
+        var (lastSuccess, lastError) = await _jobs.GetStatusMarkersAsync(runId, ct);
 
         return new RunStatusDto
         {
@@ -259,7 +252,7 @@ public class RunsController : ControllerBase
     private async Task<AutomationRun?> OwnedRunAsync(string runId, CancellationToken ct)
     {
         var run = await _runs.GetByRunIdAsync(runId, ct);
-        if (run is null || run.UserId != User.GetUserId()) return null;
+        if (run is null || run.UserId != User.GetRequiredUserId()) return null;
         return run;
     }
 

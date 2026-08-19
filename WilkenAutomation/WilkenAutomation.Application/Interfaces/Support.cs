@@ -10,7 +10,8 @@ namespace WilkenAutomation.Application.Interfaces;
 /// </summary>
 public interface IRealtimeNotifier
 {
-    Task PublishAsync(string eventName, object payload, CancellationToken ct = default);
+    /// <param name="audienceUserId">When set, only that dashboard user receives the event.</param>
+    Task PublishAsync(string eventName, object payload, CancellationToken ct = default, long? audienceUserId = null);
     Task PublishWorkerStatusAsync(WorkerStatusDto status, CancellationToken ct = default);
 }
 

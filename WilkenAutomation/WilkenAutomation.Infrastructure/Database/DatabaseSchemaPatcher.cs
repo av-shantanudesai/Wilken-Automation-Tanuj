@@ -5,8 +5,8 @@ using WilkenAutomation.Infrastructure.Database;
 namespace WilkenAutomation.Infrastructure.Database;
 
 /// <summary>
-/// EnsureCreated does not alter an existing database. This applies the auth
-/// schema (AppUsers table + AutomationRuns.UserId) on first start after upgrade.
+/// EnsureCreated does not alter an existing database. Applies additive schema
+/// (AppUsers, UserId, RefreshTokens) on first start after upgrade.
 /// </summary>
 public static class DatabaseSchemaPatcher
 {
@@ -24,7 +24,7 @@ public static class DatabaseSchemaPatcher
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Auth schema patch failed. If login fails, recreate the database or add AppUsers / AutomationRuns.UserId manually.");
+            logger.LogWarning(ex, "Schema patch failed. Recreate the database or apply AppUsers / UserId / RefreshTokens manually.");
         }
     }
 
@@ -39,6 +39,23 @@ public static class DatabaseSchemaPatcher
                 CreatedAt datetime(6) NOT NULL,
                 PRIMARY KEY (Id),
                 UNIQUE KEY IX_AppUsers_Email (Email)
+            )
+            """, ct);
+
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS RefreshTokens (
+                Id bigint NOT NULL AUTO_INCREMENT,
+                UserId bigint NOT NULL,
+                TokenHash varchar(64) NOT NULL,
+                FamilyId varchar(32) NOT NULL,
+                ExpiresAt datetime(6) NOT NULL,
+                CreatedAt datetime(6) NOT NULL,
+                RevokedAt datetime(6) NULL,
+                ReplacedByTokenHash varchar(64) NULL,
+                CreatedByIp varchar(64) NULL,
+                PRIMARY KEY (Id),
+                UNIQUE KEY IX_RefreshTokens_TokenHash (TokenHash),
+                KEY IX_RefreshTokens_UserId_FamilyId (UserId, FamilyId)
             )
             """, ct);
 
@@ -67,6 +84,24 @@ public static class DatabaseSchemaPatcher
             """, ct);
         await db.Database.ExecuteSqlRawAsync(
             "CREATE UNIQUE INDEX IF NOT EXISTS IX_AppUsers_Email ON AppUsers (Email)", ct);
+
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS RefreshTokens (
+                Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                UserId INTEGER NOT NULL,
+                TokenHash TEXT NOT NULL,
+                FamilyId TEXT NOT NULL,
+                ExpiresAt TEXT NOT NULL,
+                CreatedAt TEXT NOT NULL,
+                RevokedAt TEXT NULL,
+                ReplacedByTokenHash TEXT NULL,
+                CreatedByIp TEXT NULL
+            )
+            """, ct);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE UNIQUE INDEX IF NOT EXISTS IX_RefreshTokens_TokenHash ON RefreshTokens (TokenHash)", ct);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_RefreshTokens_UserId_FamilyId ON RefreshTokens (UserId, FamilyId)", ct);
 
         var hasUserId = await ScalarAsync(db,
             "SELECT COUNT(*) FROM pragma_table_info('AutomationRuns') WHERE name = 'UserId'", ct);

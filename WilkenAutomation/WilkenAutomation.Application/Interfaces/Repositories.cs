@@ -7,7 +7,8 @@ public interface IRunRepository
 {
     Task<AutomationRun> CreateWithJobsAsync(AutomationRun run, IEnumerable<ExportJob> jobs, CancellationToken ct);
     Task<AutomationRun?> GetByRunIdAsync(string runId, CancellationToken ct);
-    Task<List<AutomationRun>> ListAsync(CancellationToken ct, long? userId = null);
+    Task<List<AutomationRun>> ListAsync(CancellationToken ct, long userId);
+    Task<IReadOnlyDictionary<string, StatusCountsDto>> GetCountsForRunsAsync(IEnumerable<string> runIds, CancellationToken ct);
     Task<AutomationRun?> GetActiveRunAsync(CancellationToken ct);
     Task UpdateAsync(AutomationRun run, CancellationToken ct);
 
@@ -37,6 +38,15 @@ public interface IUserRepository
     Task<AppUser> CreateAsync(AppUser user, CancellationToken ct);
 }
 
+public interface IRefreshTokenRepository
+{
+    Task AddAsync(RefreshToken token, CancellationToken ct);
+    Task<RefreshToken?> GetByHashAsync(string tokenHash, CancellationToken ct);
+    Task UpdateAsync(RefreshToken token, CancellationToken ct);
+    Task RevokeFamilyAsync(long userId, string familyId, CancellationToken ct);
+    Task RevokeAllForUserAsync(long userId, CancellationToken ct);
+}
+
 public interface IJobRepository
 {
     Task<ExportJob?> GetByJobIdAsync(string jobId, CancellationToken ct);
@@ -44,6 +54,7 @@ public interface IJobRepository
     Task<List<ExportJob>> GetAllForRunAsync(string runId, CancellationToken ct);
     Task<ExportJob?> GetNextEligibleAsync(string runId, CancellationToken ct);
     Task<ExportJob?> GetCurrentRunningAsync(CancellationToken ct);
+    Task<(ExportJob? LastSuccess, ExportJob? LastError)> GetStatusMarkersAsync(string runId, CancellationToken ct);
     Task<List<ExportJob>> GetStaleRunningAsync(CancellationToken ct);
     Task<List<ExportJob>> GetSuccessfulAsync(string runId, CancellationToken ct);
     Task UpdateAsync(ExportJob job, CancellationToken ct);

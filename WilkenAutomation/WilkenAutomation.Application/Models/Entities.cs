@@ -11,6 +11,25 @@ public class AppUser
     public DateTime CreatedAt { get; set; }
 }
 
+/// <summary>
+/// Opaque refresh token persisted as SHA-256. Rotation is one-time-use:
+/// presenting a revoked token of the same family revokes the whole family.
+/// </summary>
+public class RefreshToken
+{
+    public long Id { get; set; }
+    public long UserId { get; set; }
+    public string TokenHash { get; set; } = default!;
+    public string FamilyId { get; set; } = default!;
+    public DateTime ExpiresAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public string? ReplacedByTokenHash { get; set; }
+    public string? CreatedByIp { get; set; }
+
+    public bool IsActive => RevokedAt is null && ExpiresAt > DateTime.UtcNow;
+}
+
 public class AutomationRun
 {
     public long Id { get; set; }

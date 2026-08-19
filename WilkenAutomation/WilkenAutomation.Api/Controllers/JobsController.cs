@@ -37,7 +37,7 @@ public class JobsController : ControllerBase
         var (total, items) = await _jobs.ListAsync(new JobFilter
         {
             RunId = runId,
-            UserId = User.GetUserId(),
+            UserId = User.GetRequiredUserId(),
             Status = status,
             Client = client,
             FiscalYear = fiscalYear,
@@ -103,15 +103,15 @@ public class JobsController : ControllerBase
         }
         await _runs.RefreshCountersAsync(job.RunId, ct);
 
-        await _notifier.PublishAsync(SignalREvents.JobStatusChanged, job.ToDto(), ct);
-        await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId = job.RunId }, ct);
+        await _notifier.PublishAsync(SignalREvents.JobStatusChanged, job.ToDto(), ct, run?.UserId);
+        await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId = job.RunId }, ct, run?.UserId);
         return job.ToDto();
     }
 
     private async Task<ActionResult?> ForbidRunAsync(string runId, CancellationToken ct)
     {
         var run = await _runs.GetByRunIdAsync(runId, ct);
-        if (run is null || run.UserId != User.GetUserId()) return NotFound();
+        if (run is null || run.UserId != User.GetRequiredUserId()) return NotFound();
         return null;
     }
 }
@@ -140,18 +140,18 @@ public class LogsController : ControllerBase
         if (runId is not null)
         {
             var run = await _runs.GetByRunIdAsync(runId, ct);
-            if (run is null || run.UserId != User.GetUserId()) return Ok(new List<LogEntryDto>());
+            if (run is null || run.UserId != User.GetRequiredUserId()) return NotFound();
         }
         else if (jobId is not null)
         {
             var job = await _jobs.GetByJobIdAsync(jobId, ct);
-            if (job is null) return Ok(new List<LogEntryDto>());
+            if (job is null) return NotFound();
             var run = await _runs.GetByRunIdAsync(job.RunId, ct);
-            if (run is null || run.UserId != User.GetUserId()) return Ok(new List<LogEntryDto>());
+            if (run is null || run.UserId != User.GetRequiredUserId()) return NotFound();
         }
         else
         {
-            return Ok(new List<LogEntryDto>());
+            return BadRequest(new { message = "runId or jobId is required." });
         }
 
         var logs = await _logs.QueryAsync(runId, jobId, limit, ct);

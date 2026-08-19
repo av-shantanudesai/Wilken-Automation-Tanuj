@@ -82,54 +82,57 @@ public class JobExecutor
         await _jobs.UpdateAsync(job, ct);
         await _jobs.AddAttemptAsync(attempt, ct);
 
+        var owner = await _runs.GetByRunIdAsync(job.RunId, ct);
+        var userId = owner?.UserId;
+
         await LogAsync(job, "INFO", "JobStarted", $"Attempt {attemptNumber} started.", attemptNumber, ct: ct);
-        await _notifier.PublishAsync(SignalREvents.JobStarted, job.ToDto(), ct);
-        await _notifier.PublishAsync(SignalREvents.JobStatusChanged, job.ToDto(), ct);
+        await Notify(SignalREvents.JobStarted, job.ToDto(), userId, ct);
+        await Notify(SignalREvents.JobStatusChanged, job.ToDto(), userId, ct);
 
         try
         {
             await _wilken.BeginJobAsync(job, config, ct);
 
             // Step 2 - session
-            await SetState(job, ApplicationState.StartingWilken, ct);
+            await SetState(job, ApplicationState.StartingWilken, userId, ct);
             if (!await _wilken.IsSessionHealthyAsync(ct))
             {
-                await SetState(job, ApplicationState.RecoveringSession, ct);
+                await SetState(job, ApplicationState.RecoveringSession, userId, ct);
                 await _wilken.RecoverSessionAsync(ct);
             }
             await _wilken.EnsureSessionAsync(ct);
 
             // Steps 3-6 - navigate and verify selection
-            await SetState(job, ApplicationState.SelectingClient, ct);
+            await SetState(job, ApplicationState.SelectingClient, userId, ct);
             await _wilken.SelectClientAsync(job.Client, ct);
 
-            await SetState(job, ApplicationState.OpeningAssetAccounting, ct);
+            await SetState(job, ApplicationState.OpeningAssetAccounting, userId, ct);
             await _wilken.OpenAssetAccountingAsync(ct);
 
-            await SetState(job, ApplicationState.SettingYear, ct);
+            await SetState(job, ApplicationState.SettingYear, userId, ct);
             await _wilken.SetFiscalYearAsync(job.FiscalYear, ct);
 
-            await SetState(job, ApplicationState.SelectingDepartment, ct);
+            await SetState(job, ApplicationState.SelectingDepartment, userId, ct);
             await _wilken.SelectDepartmentAsync(job.Department, ct);
 
             // Steps 7-8 - evaluation, state-based report wait
-            await SetState(job, ApplicationState.StartingReport, ct);
+            await SetState(job, ApplicationState.StartingReport, userId, ct);
             await _wilken.StartEvaluationAsync(ct);
 
-            await SetState(job, ApplicationState.WaitingForReport, ct);
+            await SetState(job, ApplicationState.WaitingForReport, userId, ct);
             await _wilken.WaitForReportReadyAsync(ct);
             await LogAsync(job, "INFO", "ReportReady", "Report/spool generation completed.", attemptNumber, ct: ct);
 
             // Step 9 - spool
-            await SetState(job, ApplicationState.OpeningSpool, ct);
+            await SetState(job, ApplicationState.OpeningSpool, userId, ct);
             await _wilken.OpenSpoolAsync(ct);
 
             // Step 10 - export
-            await SetState(job, ApplicationState.Exporting, ct);
+            await SetState(job, ApplicationState.Exporting, userId, ct);
             var producedPath = await _wilken.ExportAsync(job, ct);
 
             // Step 11 - wait until file creation actually completed
-            await SetState(job, ApplicationState.WaitingForFile, ct);
+            await SetState(job, ApplicationState.WaitingForFile, userId, ct);
             await WaitHelper.WaitForFileReadyAsync(
                 producedPath,
                 TimeSpan.FromSeconds(_wilkenOptions.FileCreationTimeoutSeconds),
@@ -144,7 +147,7 @@ public class JobExecutor
             job.FileSize = fileInfo.Length;
 
             // Step 12 - validate
-            await SetState(job, ApplicationState.ValidatingFile, ct);
+            await SetState(job, ApplicationState.ValidatingFile, userId, ct);
             var validation = await _validator.ValidateAsync(finalPath, job, config.EnableContentValidation, ct);
             job.ValidationStatus = validation.Status;
             job.ValidationDetail = validation.Detail;
@@ -156,7 +159,7 @@ public class JobExecutor
             // Step 13 - checksum
             if (config.EnableChecksum)
             {
-                await SetState(job, ApplicationState.CalculatingHash, ct);
+                await SetState(job, ApplicationState.CalculatingHash, userId, ct);
                 job.Sha256 = await _checksum.ComputeSha256Async(finalPath, ct);
             }
 
@@ -181,11 +184,10 @@ public class JobExecutor
                 attemptNumber, job.DurationMs, ct: ct);
 
             // Step 15 - notify after persistence
-            await _notifier.PublishAsync(SignalREvents.JobCompleted, job.ToDto(), ct);
-            await _notifier.PublishAsync(SignalREvents.JobStatusChanged, job.ToDto(), ct);
-            await _notifier.PublishAsync(SignalREvents.LastSuccessChanged,
-                new { jobId = job.JobId, at = job.EndTime }, ct);
-            await PublishRunProgressAsync(job.RunId, ct);
+            await Notify(SignalREvents.JobCompleted, job.ToDto(), userId, ct);
+            await Notify(SignalREvents.JobStatusChanged, job.ToDto(), userId, ct);
+            await Notify(SignalREvents.LastSuccessChanged, new { jobId = job.JobId, at = job.EndTime }, userId, ct);
+            await PublishRunProgressAsync(job.RunId, userId, ct);
 
             return new JobExecutionResult(finalStatus, SessionLost: false);
         }
@@ -196,12 +198,12 @@ public class JobExecutor
         }
         catch (Exception ex)
         {
-            return await HandleFailureAsync(job, attempt, config, ex, ct);
+            return await HandleFailureAsync(job, attempt, config, ex, userId, ct);
         }
     }
 
     private async Task<JobExecutionResult> HandleFailureAsync(
-        ExportJob job, JobAttempt attempt, RunConfig config, Exception ex, CancellationToken ct)
+        ExportJob job, JobAttempt attempt, RunConfig config, Exception ex, long? userId, CancellationToken ct)
     {
         var errorCode = (ex as WilkenAutomationException)?.ErrorCode
             ?? (ex is WaitTimeoutException ? "TIMEOUT" : "UNEXPECTED_ERROR");
@@ -242,13 +244,13 @@ public class JobExecutor
             $"Attempt {attempt.AttemptNumber} failed ({errorCode}): {ex.Message} -> {nextStatus}",
             attempt.AttemptNumber, job.DurationMs, errorCode, ct);
 
-        await _notifier.PublishAsync(SignalREvents.JobFailed, job.ToDto(), ct);
-        await _notifier.PublishAsync(
+        await Notify(SignalREvents.JobFailed, job.ToDto(), userId, ct);
+        await Notify(
             nextStatus == JobStatus.Retry ? SignalREvents.JobRetrying : SignalREvents.JobStatusChanged,
-            job.ToDto(), ct);
-        await _notifier.PublishAsync(SignalREvents.LastErrorChanged,
-            new { jobId = job.JobId, errorCode, message = job.ErrorMessage, at = job.EndTime }, ct);
-        await PublishRunProgressAsync(job.RunId, ct);
+            job.ToDto(), userId, ct);
+        await Notify(SignalREvents.LastErrorChanged,
+            new { jobId = job.JobId, errorCode, message = job.ErrorMessage, at = job.EndTime }, userId, ct);
+        await PublishRunProgressAsync(job.RunId, userId, ct);
 
         return new JobExecutionResult(nextStatus, sessionLost);
     }
@@ -275,7 +277,7 @@ public class JobExecutor
         return target;
     }
 
-    private async Task SetState(ExportJob job, ApplicationState state, CancellationToken ct)
+    private async Task SetState(ExportJob job, ApplicationState state, long? userId, CancellationToken ct)
     {
         job.ApplicationState = state.ToWireName();
         job.UpdatedAt = DateTime.UtcNow;
@@ -284,7 +286,7 @@ public class JobExecutor
         if (ApplicationStateChanged is not null)
             await ApplicationStateChanged.Invoke(job, state);
 
-        await _notifier.PublishAsync(SignalREvents.JobApplicationStateChanged, new
+        await Notify(SignalREvents.JobApplicationStateChanged, new
         {
             runId = job.RunId,
             jobId = job.JobId,
@@ -295,20 +297,23 @@ public class JobExecutor
             attemptCount = job.AttemptCount,
             applicationState = job.ApplicationState,
             runtimeSeconds = job.StartTime is null ? 0 : (DateTime.UtcNow - job.StartTime.Value).TotalSeconds
-        }, ct);
+        }, userId, ct);
     }
 
-    private async Task PublishRunProgressAsync(string runId, CancellationToken ct)
+    private async Task PublishRunProgressAsync(string runId, long? userId, CancellationToken ct)
     {
         var counts = await _runs.GetCountsAsync(runId, ct);
-        await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new
+        await Notify(SignalREvents.RunProgressChanged, new
         {
             runId,
             counts,
             progressPercent = RunStatisticsService.ProgressPercent(counts)
-        }, ct);
-        await _notifier.PublishAsync(SignalREvents.DashboardSummaryChanged, new { runId }, ct);
+        }, userId, ct);
+        await Notify(SignalREvents.DashboardSummaryChanged, new { runId }, userId, ct);
     }
+
+    private Task Notify(string eventName, object payload, long? userId, CancellationToken ct) =>
+        _notifier.PublishAsync(eventName, payload, ct, userId);
 
     private Task LogAsync(ExportJob job, string level, string action, string message,
         int? attempt = null, long? durationMs = null, string? errorCode = null, CancellationToken ct = default)

@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { RealtimeService } from '../../core/realtime.service';
 import { LogEntry, RunStatusInfo, RunSummary } from '../../core/models';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-dashboard',
@@ -118,7 +119,7 @@ export class DashboardPage implements OnDestroy {
     if (e && typeof e === 'object' && 'message' in e) {
       const msg = String((e as { message: unknown }).message);
       return msg.includes('Http failure')
-        ? 'Backend not reachable at localhost:5210 - start it with "dotnet run" or switch to Mock mode.'
+        ? `Backend not reachable at ${environment.apiBaseUrl} - start the API or switch to Mock mode.`
         : msg;
     }
     return String(e);

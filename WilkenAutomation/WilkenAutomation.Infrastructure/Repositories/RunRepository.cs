@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using WilkenAutomation.Application.Enums;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Models;
+using WilkenAutomation.Application.Services;
 using WilkenAutomation.Infrastructure.Database;
 
 namespace WilkenAutomation.Infrastructure.Repositories;
@@ -42,12 +43,11 @@ public class RunRepository : IRunRepository
     public Task<AutomationRun?> GetByRunIdAsync(string runId, CancellationToken ct) =>
         _db.AutomationRuns.FirstOrDefaultAsync(r => r.RunId == runId, ct);
 
-    public Task<List<AutomationRun>> ListAsync(CancellationToken ct, long? userId = null)
-    {
-        var query = _db.AutomationRuns.AsQueryable();
-        if (userId is > 0) query = query.Where(r => r.UserId == userId.Value);
-        return query.OrderByDescending(r => r.CreatedAt).ToListAsync(ct);
-    }
+    public Task<List<AutomationRun>> ListAsync(CancellationToken ct, long userId) =>
+        _db.AutomationRuns
+            .Where(r => r.UserId == userId)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToListAsync(ct);
 
     public Task<AutomationRun?> GetActiveRunAsync(CancellationToken ct) =>
         _db.AutomationRuns
@@ -66,21 +66,7 @@ public class RunRepository : IRunRepository
     {
         var run = await GetByRunIdAsync(runId, ct);
         if (run is null) return;
-
-        var counts = await GetCountsAsync(runId, ct);
-        run.TotalJobs = counts.Total;
-        run.SuccessfulWithData = counts.SuccessWithData;
-        run.SuccessfulEmpty = counts.SuccessEmpty;
-        run.FailedJobs = counts.FailedFinal;
-        run.PendingJobs = counts.Pending + counts.Retry;
-        run.CompletedJobs = counts.Terminal;
-
-        if (run.Status == RunStatus.Running && counts.Total > 0 && counts.Terminal == counts.Total)
-        {
-            run.Status = RunStatus.Completed;
-            run.CompletedAt = DateTime.UtcNow;
-        }
-
+        RunCounters.ApplyToRun(run, await GetCountsAsync(runId, ct));
         await UpdateAsync(run, ct);
     }
 
@@ -92,16 +78,25 @@ public class RunRepository : IRunRepository
             .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToListAsync(ct);
 
-        int Of(JobStatus s) => groups.FirstOrDefault(g => g.Status == s)?.Count ?? 0;
+        return RunCounters.FromGroups(groups.Select(g => (g.Status, g.Count)));
+    }
 
-        return new StatusCountsDto(
-            groups.Sum(g => g.Count),
-            Of(JobStatus.Pending),
-            Of(JobStatus.Running),
-            Of(JobStatus.Retry),
-            Of(JobStatus.SuccessWithData),
-            Of(JobStatus.SuccessEmpty),
-            Of(JobStatus.FailedFinal));
+    public async Task<IReadOnlyDictionary<string, StatusCountsDto>> GetCountsForRunsAsync(
+        IEnumerable<string> runIds, CancellationToken ct)
+    {
+        var ids = runIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new Dictionary<string, StatusCountsDto>();
+
+        var groups = await _db.ExportJobs
+            .Where(j => ids.Contains(j.RunId))
+            .GroupBy(j => new { j.RunId, j.Status })
+            .Select(g => new { g.Key.RunId, g.Key.Status, Count = g.Count() })
+            .ToListAsync(ct);
+
+        return ids.ToDictionary(
+            id => id,
+            id => RunCounters.FromGroups(groups.Where(g => g.RunId == id).Select(g => (g.Status, g.Count))));
     }
 
     public Task<int> CountRunsWithPrefixAsync(string prefix, CancellationToken ct) =>

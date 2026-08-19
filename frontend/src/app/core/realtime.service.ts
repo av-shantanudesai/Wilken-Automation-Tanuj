@@ -5,6 +5,7 @@ import {
   HubConnectionState,
 } from '@microsoft/signalr';
 import { AuthService } from './auth.service';
+import { environment } from '../../environments/environment';
 
 /** SignalR events broadcast by the WilkenAutomation backend. */
 const HUB_EVENTS = [
@@ -25,8 +26,6 @@ const HUB_EVENTS = [
 
 export type HubEvent = (typeof HUB_EVENTS)[number];
 
-const HUB_URL = 'http://localhost:5210/hubs/job-monitoring';
-
 /**
  * Real-time channel to the backend (backend mode only). The REST API remains
  * the source of truth; events are used as refresh triggers so the dashboard
@@ -44,7 +43,7 @@ export class RealtimeService {
     if (this.connection) return;
 
     this.connection = new HubConnectionBuilder()
-      .withUrl(HUB_URL, {
+      .withUrl(environment.hubUrl, {
         accessTokenFactory: () => this.auth.token() ?? '',
       })
       .withAutomaticReconnect()

@@ -24,7 +24,7 @@
 
       <label>Password</label>
       <input [(ngModel)]="password" name="password" type="password" required minlength="8"
-             placeholder="At least 8 characters" autocomplete="current-password" />
+             placeholder="At least 8 characters, with a letter and a digit" autocomplete="current-password" />
 
       @if (error()) {
         <p class="err-text">{{ error() }}</p>

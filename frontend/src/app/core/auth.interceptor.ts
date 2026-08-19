@@ -1,26 +1,48 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { Injector, inject } from '@angular/core';
-import { catchError, throwError } from 'rxjs';
+import { catchError, from, switchMap, throwError } from 'rxjs';
+import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
+
+const AUTH_FREE = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout'];
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const injector = inject(Injector);
-  const isApi = req.url.includes('://localhost:5210/') || req.url.includes('/api/');
-  const isAuthCall = req.url.includes('/api/auth/login') || req.url.includes('/api/auth/register');
+  const isApi = req.url.startsWith(environment.apiBaseUrl) || req.url.includes('/api/');
+  const isAuthFree = AUTH_FREE.some((path) => req.url.includes(path));
 
   const auth = injector.get(AuthService);
   const token = auth.token();
-
-  const authorized = token && !token.startsWith('mock.') && isApi && !isAuthCall
+  const authorized = token && !token.startsWith('mock.') && isApi && !isAuthFree
     ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } })
     : req;
 
   return next(authorized).pipe(
     catchError((error: unknown) => {
-      if (error instanceof HttpErrorResponse && error.status === 401 && !isAuthCall) {
-        injector.get(AuthService).handleUnauthorized();
+      if (!(error instanceof HttpErrorResponse) || error.status !== 401 || isAuthFree || req.headers.has('X-Silent-Retry')) {
+        return throwError(() => error);
       }
-      return throwError(() => error);
+
+      return from(auth.refreshAccessToken()).pipe(
+        switchMap((ok) => {
+          if (!ok) {
+            injector.get(AuthService).handleUnauthorized();
+            return throwError(() => error);
+          }
+          const retryToken = injector.get(AuthService).token();
+          if (!retryToken) {
+            injector.get(AuthService).handleUnauthorized();
+            return throwError(() => error);
+          }
+          const retry = req.clone({
+            setHeaders: {
+              Authorization: `Bearer ${retryToken}`,
+              'X-Silent-Retry': '1',
+            },
+          });
+          return next(retry);
+        }),
+      );
     }),
   );
 };

@@ -18,7 +18,7 @@ public class JobGeneratorTests : IDisposable
 
         Assert.Equal(3 * 3 * 2, config.ExpectedJobs);
 
-        var run = await generator.GenerateRunAsync(config, null, autoStart: false, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, autoStart: false, CancellationToken.None, userId: 1);
         var jobs = await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None);
 
         Assert.Equal(18, run.TotalJobs);
@@ -32,7 +32,7 @@ public class JobGeneratorTests : IDisposable
     {
         var generator = _ctx.Generator();
         var config = generator.BuildConfig(new CreateRunRequestDto { ClientCount = 2, YearFrom = 2003, YearTo = 2004 });
-        var run = await generator.GenerateRunAsync(config, null, false, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, false, CancellationToken.None, 1);
         var jobs = await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None);
 
         Assert.Equal("001", jobs[0].Client);
@@ -53,7 +53,7 @@ public class JobGeneratorTests : IDisposable
             Years = new List<int> { 2003, 2003 },
             Departments = new List<string> { "Handelsrecht", "Handelsrecht" }
         });
-        var run = await generator.GenerateRunAsync(config, null, false, CancellationToken.None);
+        var run = await generator.GenerateRunAsync(config, null, false, CancellationToken.None, 1);
 
         Assert.Equal(1, run.TotalJobs);
     }

@@ -45,13 +45,14 @@ public class SignalRNotifier : IRealtimeNotifier, IAsyncDisposable
         }
     }
 
-    public async Task PublishAsync(string eventName, object payload, CancellationToken ct = default)
+    public async Task PublishAsync(string eventName, object payload, CancellationToken ct = default, long? audienceUserId = null)
     {
         await EnsureConnectedAsync(ct);
         if (_connection.State != HubConnectionState.Connected) return;
+        if (audienceUserId is not > 0) return;
         try
         {
-            await _connection.InvokeAsync("PublishEvent", eventName, payload, ct);
+            await _connection.InvokeAsync("PublishEvent", eventName, payload, audienceUserId.Value, ct);
         }
         catch (Exception ex)
         {

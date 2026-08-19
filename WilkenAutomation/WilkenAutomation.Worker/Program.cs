@@ -56,6 +56,7 @@ builder.Services.AddSingleton(exportSettings);
 builder.Services.AddSingleton(workerSettings);
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
+JwtTokenService.EnsureProductionKey(jwtOptions, builder.Environment.EnvironmentName);
 builder.Services.AddSingleton(jwtOptions);
 builder.Services.AddSingleton(new JwtTokenService(jwtOptions));
 

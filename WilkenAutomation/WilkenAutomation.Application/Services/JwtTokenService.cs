@@ -13,6 +13,12 @@ public static class AuthRoles
     public const string Worker = "Worker";
 }
 
+public static class HubGroups
+{
+    public const string Workers = "workers";
+    public static string User(long userId) => $"user:{userId}";
+}
+
 public class JwtTokenService
 {
     public const string UserIdClaim = "uid";
@@ -24,16 +30,30 @@ public class JwtTokenService
     {
         _options = options;
         if (string.IsNullOrWhiteSpace(options.Key) || options.Key.Length < 32)
-            throw new InvalidOperationException("Jwt:Key must be configured and at least 32 characters.");
+            throw new InvalidOperationException("Jwt:Key must be configured and at least 32 characters (set Jwt__Key).");
         _key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.Key));
     }
 
+    public static void EnsureProductionKey(JwtOptions options, string environmentName)
+    {
+        if (string.Equals(environmentName, "Production", StringComparison.OrdinalIgnoreCase)
+            && options.Key.Contains("DevOnly", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Refusing to start in Production with the committed development Jwt:Key. Set Jwt__Key to a unique secret.");
+        }
+    }
+
+    public int AccessTokenMinutes => Math.Clamp(_options.AccessTokenMinutes, 5, 60);
+    public int RefreshTokenDays => Math.Clamp(_options.RefreshTokenDays, 1, 30);
+
     public (string Token, DateTime ExpiresAt) CreateUserToken(AppUser user)
     {
-        var expires = DateTime.UtcNow.AddMinutes(Math.Max(15, _options.AccessTokenMinutes));
+        var expires = DateTime.UtcNow.AddMinutes(AccessTokenMinutes);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
             new Claim(UserIdClaim, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(ClaimTypes.Name, user.DisplayName),
@@ -44,7 +64,8 @@ public class JwtTokenService
 
     public string CreateWorkerToken()
     {
-        var expires = DateTime.UtcNow.AddDays(7);
+        var hours = Math.Clamp(_options.WorkerTokenHours, 1, 24);
+        var expires = DateTime.UtcNow.AddHours(hours);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, "worker"),
@@ -60,6 +81,7 @@ public class JwtTokenService
             issuer: _options.Issuer,
             audience: _options.Audience,
             claims: claims,
+            notBefore: DateTime.UtcNow.AddSeconds(-5),
             expires: expires,
             signingCredentials: creds);
         return new JwtSecurityTokenHandler().WriteToken(token);

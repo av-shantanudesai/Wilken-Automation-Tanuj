@@ -62,6 +62,8 @@ public class JobGeneratorService
 
     public async Task<AutomationRun> GenerateRunAsync(RunConfig config, string? notes, bool autoStart, CancellationToken ct, long userId = 0)
     {
+        if (userId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(userId), "A valid owning user is required to create a run.");
         if (config.ExpectedJobs == 0)
             throw new ArgumentException("Configuration yields zero jobs - check clients, years and departments.");
 
