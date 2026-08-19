@@ -86,8 +86,8 @@ public class JobExecutor
         var userId = owner?.UserId;
 
         await LogAsync(job, "INFO", "JobStarted", $"Attempt {attemptNumber} started.", attemptNumber, ct: ct);
-        await Notify(SignalREvents.JobStarted, job.ToDto(), userId, ct);
-        await Notify(SignalREvents.JobStatusChanged, job.ToDto(), userId, ct);
+        await Notify(SignalREvents.JobStarted, job.ToDto(), userId, job.RunId, ct);
+        await Notify(SignalREvents.JobStatusChanged, job.ToDto(), userId, job.RunId, ct);
 
         try
         {
@@ -184,9 +184,9 @@ public class JobExecutor
                 attemptNumber, job.DurationMs, ct: ct);
 
             // Step 15 - notify after persistence
-            await Notify(SignalREvents.JobCompleted, job.ToDto(), userId, ct);
-            await Notify(SignalREvents.JobStatusChanged, job.ToDto(), userId, ct);
-            await Notify(SignalREvents.LastSuccessChanged, new { jobId = job.JobId, at = job.EndTime }, userId, ct);
+            await Notify(SignalREvents.JobCompleted, job.ToDto(), userId, job.RunId, ct);
+            await Notify(SignalREvents.JobStatusChanged, job.ToDto(), userId, job.RunId, ct);
+            await Notify(SignalREvents.LastSuccessChanged, new { jobId = job.JobId, at = job.EndTime }, userId, job.RunId, ct);
             await PublishRunProgressAsync(job.RunId, userId, ct);
 
             return new JobExecutionResult(finalStatus, SessionLost: false);
@@ -244,12 +244,12 @@ public class JobExecutor
             $"Attempt {attempt.AttemptNumber} failed ({errorCode}): {ex.Message} -> {nextStatus}",
             attempt.AttemptNumber, job.DurationMs, errorCode, ct);
 
-        await Notify(SignalREvents.JobFailed, job.ToDto(), userId, ct);
+        await Notify(SignalREvents.JobFailed, job.ToDto(), userId, job.RunId, ct);
         await Notify(
             nextStatus == JobStatus.Retry ? SignalREvents.JobRetrying : SignalREvents.JobStatusChanged,
-            job.ToDto(), userId, ct);
+            job.ToDto(), userId, job.RunId, ct);
         await Notify(SignalREvents.LastErrorChanged,
-            new { jobId = job.JobId, errorCode, message = job.ErrorMessage, at = job.EndTime }, userId, ct);
+            new { jobId = job.JobId, errorCode, message = job.ErrorMessage, at = job.EndTime }, userId, job.RunId, ct);
         await PublishRunProgressAsync(job.RunId, userId, ct);
 
         return new JobExecutionResult(nextStatus, sessionLost);
@@ -297,7 +297,7 @@ public class JobExecutor
             attemptCount = job.AttemptCount,
             applicationState = job.ApplicationState,
             runtimeSeconds = job.StartTime is null ? 0 : (DateTime.UtcNow - job.StartTime.Value).TotalSeconds
-        }, userId, ct);
+        }, userId, job.RunId, ct);
     }
 
     private async Task PublishRunProgressAsync(string runId, long? userId, CancellationToken ct)
@@ -308,12 +308,12 @@ public class JobExecutor
             runId,
             counts,
             progressPercent = RunStatisticsService.ProgressPercent(counts)
-        }, userId, ct);
-        await Notify(SignalREvents.DashboardSummaryChanged, new { runId }, userId, ct);
+        }, userId, runId, ct);
+        await Notify(SignalREvents.DashboardSummaryChanged, new { runId }, userId, runId, ct);
     }
 
-    private Task Notify(string eventName, object payload, long? userId, CancellationToken ct) =>
-        _notifier.PublishAsync(eventName, payload, ct, userId);
+    private Task Notify(string eventName, object payload, long? userId, string? runId, CancellationToken ct) =>
+        _notifier.PublishAsync(eventName, payload, ct, userId, runId);
 
     private Task LogAsync(ExportJob job, string level, string action, string message,
         int? attempt = null, long? durationMs = null, string? errorCode = null, CancellationToken ct = default)

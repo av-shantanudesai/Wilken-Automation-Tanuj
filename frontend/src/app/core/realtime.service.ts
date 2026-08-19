@@ -27,9 +27,8 @@ const HUB_EVENTS = [
 export type HubEvent = (typeof HUB_EVENTS)[number];
 
 /**
- * Real-time channel to the backend (backend mode only). The REST API remains
- * the source of truth; events are used as refresh triggers so the dashboard
- * updates immediately instead of waiting for the next poll.
+ * Real-time channel to the backend (backend mode only). Job events are delivered
+ * only after SubscribeRun for a run the user owns.
  */
 @Injectable({ providedIn: 'root' })
 export class RealtimeService {
@@ -38,6 +37,7 @@ export class RealtimeService {
 
   private connection: HubConnection | null = null;
   private listeners = new Set<(event: HubEvent, payload: unknown) => void>();
+  private subscribedRunId: string | null = null;
 
   connect(): void {
     if (this.connection) return;
@@ -45,6 +45,7 @@ export class RealtimeService {
     this.connection = new HubConnectionBuilder()
       .withUrl(environment.hubUrl, {
         accessTokenFactory: () => this.auth.token() ?? '',
+        withCredentials: true,
       })
       .withAutomaticReconnect()
       .build();
@@ -55,18 +56,39 @@ export class RealtimeService {
       });
     }
 
-    this.connection.onreconnected(() => this.connected.set(true));
+    this.connection.onreconnected(() => {
+      this.connected.set(true);
+      void this.resubscribe();
+    });
     this.connection.onclose(() => this.connected.set(false));
 
     this.connection
       .start()
-      .then(() => this.connected.set(true))
+      .then(() => {
+        this.connected.set(true);
+        void this.resubscribe();
+      })
       .catch(() => this.connected.set(false));
+  }
+
+  async subscribeToRun(runId: string | null): Promise<void> {
+    if (this.subscribedRunId === runId) return;
+    const previous = this.subscribedRunId;
+    this.subscribedRunId = runId;
+    if (!this.connection || this.connection.state !== HubConnectionState.Connected) return;
+
+    if (previous) {
+      await this.connection.invoke('UnsubscribeRun', previous).catch(() => undefined);
+    }
+    if (runId) {
+      await this.connection.invoke('SubscribeRun', runId).catch(() => undefined);
+    }
   }
 
   async disconnect(): Promise<void> {
     const connection = this.connection;
     this.connection = null;
+    this.subscribedRunId = null;
     this.connected.set(false);
     if (connection && connection.state !== HubConnectionState.Disconnected) {
       await connection.stop().catch(() => undefined);
@@ -77,5 +99,11 @@ export class RealtimeService {
   subscribe(listener: (event: HubEvent, payload: unknown) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  private async resubscribe(): Promise<void> {
+    const runId = this.subscribedRunId;
+    if (!runId || !this.connection || this.connection.state !== HubConnectionState.Connected) return;
+    await this.connection.invoke('SubscribeRun', runId).catch(() => undefined);
   }
 }

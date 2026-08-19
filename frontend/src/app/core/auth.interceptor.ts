@@ -13,9 +13,10 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   const auth = injector.get(AuthService);
   const token = auth.token();
-  const authorized = token && !token.startsWith('mock.') && isApi && !isAuthFree
-    ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } })
-    : req;
+  let authorized = isApi ? req.clone({ withCredentials: true }) : req;
+  if (token && !token.startsWith('mock.') && isApi && !isAuthFree) {
+    authorized = authorized.clone({ setHeaders: { Authorization: `Bearer ${token}` } });
+  }
 
   return next(authorized).pipe(
     catchError((error: unknown) => {
@@ -35,6 +36,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
             return throwError(() => error);
           }
           const retry = req.clone({
+            withCredentials: true,
             setHeaders: {
               Authorization: `Bearer ${retryToken}`,
               'X-Silent-Retry': '1',

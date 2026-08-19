@@ -70,13 +70,13 @@ public class CapturingNotifier : IRealtimeNotifier
 {
     public List<(string Event, object Payload)> Events { get; } = new();
 
-    public Task PublishAsync(string eventName, object payload, CancellationToken ct = default, long? audienceUserId = null)
+    public Task PublishAsync(string eventName, object payload, CancellationToken ct = default, long? audienceUserId = null, string? runId = null)
     {
         Events.Add((eventName, payload));
         return Task.CompletedTask;
     }
 
-    public Task PublishWorkerStatusAsync(WorkerStatusDto status, CancellationToken ct = default) =>
+    public Task PublishWorkerStatusAsync(WorkerStatusDto status, CancellationToken ct = default, long? audienceUserId = null) =>
         Task.CompletedTask;
 }
 

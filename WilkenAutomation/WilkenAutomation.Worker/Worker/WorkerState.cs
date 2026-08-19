@@ -13,6 +13,7 @@ public class WorkerState
     public AutomationMode Mode { get; set; } = AutomationMode.Mock;
 
     private string? _runId;
+    private long? _ownerUserId;
     private string? _jobId;
     private string? _jobLabel;
     private int? _attempt;
@@ -33,16 +34,28 @@ public class WorkerState
         lock (_lock) SessionStatus = session;
     }
 
-    public void SetCurrentJob(ExportJob? job)
+    public void SetCurrentJob(ExportJob? job, long? ownerUserId = null)
     {
         lock (_lock)
         {
-            _runId = job?.RunId;
-            _jobId = job?.JobId;
-            _jobLabel = job is null ? null : $"Client {job.Client} / {job.FiscalYear} / {job.Department}";
-            _attempt = job?.AttemptCount;
-            _jobStartedAt = job?.StartTime;
-            if (job is null) _action = null;
+            if (job is null)
+            {
+                _runId = null;
+                _ownerUserId = null;
+                _jobId = null;
+                _jobLabel = null;
+                _attempt = null;
+                _jobStartedAt = null;
+                _action = null;
+                return;
+            }
+
+            _runId = job.RunId;
+            if (ownerUserId is > 0) _ownerUserId = ownerUserId;
+            _jobId = job.JobId;
+            _jobLabel = $"Client {job.Client} / {job.FiscalYear} / {job.Department}";
+            _attempt = job.AttemptCount;
+            _jobStartedAt = job.StartTime;
         }
     }
 
@@ -67,6 +80,11 @@ public class WorkerState
             _lastError = message;
             _lastErrorAt = DateTime.UtcNow;
         }
+    }
+
+    public long? OwnerUserId
+    {
+        get { lock (_lock) return _ownerUserId; }
     }
 
     public WorkerStatusDto Snapshot()

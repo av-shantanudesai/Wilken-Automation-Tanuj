@@ -64,6 +64,7 @@ export class DashboardPage implements OnDestroy {
       }
 
       if (selected) {
+        void this.realtime.subscribeToRun(selected);
         const [status, logs] = await Promise.all([
           this.api.getStatus(selected),
           this.api.getLogs(selected, undefined, 12),
@@ -73,6 +74,7 @@ export class DashboardPage implements OnDestroy {
       } else {
         this.status.set(null);
         this.logs.set([]);
+        void this.realtime.subscribeToRun(null);
       }
       this.error.set(null);
     } catch (e) {

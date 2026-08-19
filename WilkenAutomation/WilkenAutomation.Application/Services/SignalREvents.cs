@@ -16,4 +16,14 @@ public static class SignalREvents
     public const string LastErrorChanged = "LastErrorChanged";
     public const string LastSuccessChanged = "LastSuccessChanged";
     public const string RunsChanged = "RunsChanged";
+
+    private static readonly HashSet<string> Known = new(StringComparer.Ordinal)
+    {
+        JobStarted, JobStatusChanged, JobApplicationStateChanged, JobCompleted, JobFailed,
+        JobRetrying, RunProgressChanged, DashboardSummaryChanged, WorkerStatusChanged,
+        WilkenSessionChanged, LastErrorChanged, LastSuccessChanged, RunsChanged
+    };
+
+    public static bool IsKnown(string? eventName) =>
+        !string.IsNullOrWhiteSpace(eventName) && Known.Contains(eventName);
 }

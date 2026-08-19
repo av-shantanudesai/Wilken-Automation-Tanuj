@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using WilkenAutomation.Api.Auth;
 using WilkenAutomation.Api.Services;
 using WilkenAutomation.Application.Enums;
@@ -56,11 +57,12 @@ public class RunsController : ControllerBase
     }
 
     [HttpPost]
+    [EnableRateLimiting("writes")]
     public async Task<ActionResult<RunSummaryDto>> Create([FromBody] CreateRunRequestDto request, CancellationToken ct)
     {
         var config = _generator.BuildConfig(request);
         var run = await _generator.GenerateRunAsync(config, request.Notes, request.AutoStart, ct, User.GetRequiredUserId());
-        await _notifier.PublishAsync(SignalREvents.RunsChanged, new { runId = run.RunId }, ct, run.UserId);
+        await _notifier.PublishAsync(SignalREvents.RunsChanged, new { runId = run.RunId }, ct, run.UserId, run.RunId);
         return run.ToSummaryDto(await _runs.GetCountsAsync(run.RunId, ct));
     }
 
@@ -75,7 +77,7 @@ public class RunsController : ControllerBase
             run.StartedAt ??= DateTime.UtcNow;
             run.CompletedAt = null;
             await _runs.UpdateAsync(run, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId);
+            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId, runId);
         }
         return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
     }
@@ -89,7 +91,7 @@ public class RunsController : ControllerBase
         {
             run.Status = RunStatus.Paused;
             await _runs.UpdateAsync(run, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId);
+            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId, runId);
         }
         return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
     }
@@ -121,7 +123,7 @@ public class RunsController : ControllerBase
                 await _runs.UpdateAsync(run, ct);
             }
             await _runs.RefreshCountersAsync(runId, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId);
+            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId, runId);
         }
 
         return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));

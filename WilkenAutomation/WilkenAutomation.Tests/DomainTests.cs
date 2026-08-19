@@ -207,3 +207,16 @@ public class PasswordHasherTests
         Assert.False(PasswordHasher.Verify("wrong-password", hash));
     }
 }
+
+public class SignalREventsTests
+{
+    [Fact]
+    public void IsKnown_AcceptsCatalogAndRejectsArbitraryNames()
+    {
+        Assert.True(SignalREvents.IsKnown(SignalREvents.JobStarted));
+        Assert.True(SignalREvents.IsKnown(SignalREvents.RunsChanged));
+        Assert.False(SignalREvents.IsKnown("DropAllTables"));
+        Assert.False(SignalREvents.IsKnown(""));
+        Assert.False(SignalREvents.IsKnown(null));
+    }
+}

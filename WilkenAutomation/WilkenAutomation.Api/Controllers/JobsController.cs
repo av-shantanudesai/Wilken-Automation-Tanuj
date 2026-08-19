@@ -103,8 +103,8 @@ public class JobsController : ControllerBase
         }
         await _runs.RefreshCountersAsync(job.RunId, ct);
 
-        await _notifier.PublishAsync(SignalREvents.JobStatusChanged, job.ToDto(), ct, run?.UserId);
-        await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId = job.RunId }, ct, run?.UserId);
+        await _notifier.PublishAsync(SignalREvents.JobStatusChanged, job.ToDto(), ct, run?.UserId, job.RunId);
+        await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId = job.RunId }, ct, run?.UserId, job.RunId);
         return job.ToDto();
     }
 

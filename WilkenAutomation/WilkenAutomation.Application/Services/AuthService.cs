@@ -73,7 +73,7 @@ public class AuthService
         await _refreshTokens.UpdateAsync(existing, ct);
 
         var session = await IssueSessionAsync(user, ip, ct, existing.FamilyId);
-        existing.ReplacedByTokenHash = TokenHasher.Sha256(session.RefreshToken);
+        existing.ReplacedByTokenHash = TokenHasher.Sha256(session.RefreshToken!);
         await _refreshTokens.UpdateAsync(existing, ct);
         return session;
     }

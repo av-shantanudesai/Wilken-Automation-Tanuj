@@ -17,11 +17,13 @@ public class AuthController : ControllerBase
 
     private readonly AuthService _auth;
     private readonly IUserRepository _users;
+    private readonly IHostEnvironment _environment;
 
-    public AuthController(AuthService auth, IUserRepository users)
+    public AuthController(AuthService auth, IUserRepository users, IHostEnvironment environment)
     {
         _auth = auth;
         _users = users;
+        _environment = environment;
     }
 
     [AllowAnonymous]
@@ -29,8 +31,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<AuthResponseDto>> Register([FromBody] RegisterRequestDto request, CancellationToken ct)
     {
         var response = await _auth.RegisterAsync(request, ClientIp(), ct);
-        SetRefreshCookie(response);
-        return response;
+        return SessionResult(response);
     }
 
     [AllowAnonymous]
@@ -38,8 +39,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<AuthResponseDto>> Login([FromBody] LoginRequestDto request, CancellationToken ct)
     {
         var response = await _auth.LoginAsync(request, ClientIp(), ct);
-        SetRefreshCookie(response);
-        return response;
+        return SessionResult(response);
     }
 
     [AllowAnonymous]
@@ -48,8 +48,7 @@ public class AuthController : ControllerBase
     {
         var raw = request?.RefreshToken ?? Request.Cookies[RefreshCookieName];
         var response = await _auth.RefreshAsync(raw, ClientIp(), ct);
-        SetRefreshCookie(response);
-        return response;
+        return SessionResult(response);
     }
 
     [AllowAnonymous]
@@ -71,20 +70,26 @@ public class AuthController : ControllerBase
         return new AuthUserDto { Id = user.Id, Email = user.Email, DisplayName = user.DisplayName };
     }
 
-    private string? ClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString();
-
-    private void SetRefreshCookie(AuthResponseDto response)
+    private ActionResult<AuthResponseDto> SessionResult(AuthResponseDto response)
     {
-        var options = CookieOptions();
-        options.Expires = response.RefreshExpiresAt;
-        Response.Cookies.Append(RefreshCookieName, response.RefreshToken, options);
+        if (!string.IsNullOrWhiteSpace(response.RefreshToken))
+        {
+            var options = CookieOptions();
+            options.Expires = response.RefreshExpiresAt;
+            Response.Cookies.Append(RefreshCookieName, response.RefreshToken, options);
+        }
+
+        response.RefreshToken = null;
+        return response;
     }
+
+    private string? ClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString();
 
     private CookieOptions CookieOptions() => new()
     {
         HttpOnly = true,
-        Secure = Request.IsHttps,
-        SameSite = SameSiteMode.Lax,
+        Secure = !_environment.IsDevelopment() || Request.IsHttps,
+        SameSite = SameSiteMode.Strict,
         Path = "/api/auth",
         IsEssential = true
     };

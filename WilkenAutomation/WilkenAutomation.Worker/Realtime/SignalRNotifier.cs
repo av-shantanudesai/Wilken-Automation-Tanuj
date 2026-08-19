@@ -8,8 +8,8 @@ namespace WilkenAutomation.Worker.Realtime;
 
 /// <summary>
 /// Worker-side notifier: connects to the API's /hubs/job-monitoring hub as a
-/// client and relays events. The database is always persisted first, so a lost
-/// connection only delays UI updates - it never loses state.
+/// client and relays events to a specific user/run. The database is always
+/// persisted first, so a lost connection only delays UI updates.
 /// </summary>
 public class SignalRNotifier : IRealtimeNotifier, IAsyncDisposable
 {
@@ -45,14 +45,14 @@ public class SignalRNotifier : IRealtimeNotifier, IAsyncDisposable
         }
     }
 
-    public async Task PublishAsync(string eventName, object payload, CancellationToken ct = default, long? audienceUserId = null)
+    public async Task PublishAsync(string eventName, object payload, CancellationToken ct = default, long? audienceUserId = null, string? runId = null)
     {
         await EnsureConnectedAsync(ct);
         if (_connection.State != HubConnectionState.Connected) return;
-        if (audienceUserId is not > 0) return;
+        if (audienceUserId is not > 0 || !SignalREvents.IsKnown(eventName)) return;
         try
         {
-            await _connection.InvokeAsync("PublishEvent", eventName, payload, audienceUserId.Value, ct);
+            await _connection.InvokeAsync("PublishEvent", eventName, payload, audienceUserId.Value, runId, ct);
         }
         catch (Exception ex)
         {
@@ -60,13 +60,14 @@ public class SignalRNotifier : IRealtimeNotifier, IAsyncDisposable
         }
     }
 
-    public async Task PublishWorkerStatusAsync(WorkerStatusDto status, CancellationToken ct = default)
+    public async Task PublishWorkerStatusAsync(WorkerStatusDto status, CancellationToken ct = default, long? audienceUserId = null)
     {
         await EnsureConnectedAsync(ct);
         if (_connection.State != HubConnectionState.Connected) return;
+        if (audienceUserId is not > 0) return;
         try
         {
-            await _connection.InvokeAsync("PublishWorkerStatus", status, ct);
+            await _connection.InvokeAsync("PublishWorkerStatus", status, audienceUserId.Value, ct);
         }
         catch (Exception ex)
         {

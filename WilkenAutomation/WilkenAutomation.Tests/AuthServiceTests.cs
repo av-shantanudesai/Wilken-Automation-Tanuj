@@ -91,6 +91,20 @@ public class AuthServiceTests : IDisposable
         Assert.Equal(60, jwt.AccessTokenMinutes);
     }
 
+    [Fact]
+    public void WorkerToken_UsesSeparateAudienceAndIsClamped()
+    {
+        var jwt = new JwtTokenService(new JwtOptions
+        {
+            Key = "WilkenAutomation-DevOnly-ChangeThisKey-32ch",
+            WorkerKey = "WilkenAutomation-DevOnly-WorkerKey-32chars!",
+            WorkerTokenHours = 24
+        });
+        Assert.Equal(4, jwt.WorkerTokenHours);
+        Assert.Equal("WilkenAutomation.Worker", jwt.WorkerAudience);
+        Assert.False(string.IsNullOrWhiteSpace(jwt.CreateWorkerToken()));
+    }
+
     public void Dispose() => _ctx.Dispose();
 }
 

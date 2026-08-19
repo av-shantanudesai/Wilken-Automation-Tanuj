@@ -1,4 +1,4 @@
-using System.Text;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -22,7 +22,11 @@ builder.Services.AddControllers(options => options.Filters.Add<AuthExceptionFilt
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
-builder.Services.AddSignalR().AddJsonProtocol(options =>
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    options.MaximumReceiveMessageSize = 64 * 1024;
+}).AddJsonProtocol(options =>
 {
     options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
@@ -55,8 +59,9 @@ builder.Services.AddWilkenInfrastructure(builder.Configuration);
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
 JwtTokenService.EnsureProductionKey(jwtOptions, builder.Environment.EnvironmentName);
+var jwtTokens = new JwtTokenService(jwtOptions);
 builder.Services.AddSingleton(jwtOptions);
-builder.Services.AddSingleton(new JwtTokenService(jwtOptions));
+builder.Services.AddSingleton(jwtTokens);
 builder.Services.AddScoped<AuthService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -70,9 +75,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
-            ValidIssuer = jwtOptions.Issuer,
-            ValidAudience = jwtOptions.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
+            ValidIssuer = jwtTokens.Issuer,
+            ValidAudiences = jwtTokens.ValidAudiences,
+            IssuerSigningKeys = jwtTokens.SigningKeys,
             RoleClaimType = System.Security.Claims.ClaimTypes.Role,
             NameClaimType = System.Security.Claims.ClaimTypes.Name,
         };
@@ -104,6 +109,17 @@ builder.Services.AddRateLimiter(options =>
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("writes", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.User.FindFirstValue(JwtTokenService.UserIdClaim)
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
@@ -140,11 +156,16 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
 
 app.UseCors();
-app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
 app.MapHub<JobMonitoringHub>("/hubs/job-monitoring");
 

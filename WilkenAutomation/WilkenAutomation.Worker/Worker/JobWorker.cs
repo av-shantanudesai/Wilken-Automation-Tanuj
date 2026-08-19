@@ -126,7 +126,7 @@ public class JobWorker : BackgroundService
         var config = JsonSerializer.Deserialize<RunConfig>(run.ConfigJson) ?? new RunConfig();
 
         _state.SetStatus(WorkerStatus.Running);
-        _state.SetCurrentJob(job);
+        _state.SetCurrentJob(job, run.UserId);
 
         var executor = scope.ServiceProvider.GetRequiredService<JobExecutor>();
         executor.ApplicationStateChanged += (j, appState) =>
@@ -188,7 +188,7 @@ public class HeartbeatService : BackgroundService
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_settings.HeartbeatIntervalMs));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            await _notifier.PublishWorkerStatusAsync(_state.Snapshot(), stoppingToken);
+            await _notifier.PublishWorkerStatusAsync(_state.Snapshot(), stoppingToken, _state.OwnerUserId);
         }
     }
 }

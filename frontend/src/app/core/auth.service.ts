@@ -60,12 +60,12 @@ export class AuthService {
   }
 
   logout(redirect = true): void {
-    const refreshToken = this.session()?.refreshToken;
     this.clearTimer();
+    const hadSession = !!this.session();
     this.session.set(null);
     sessionStorage.removeItem(AUTH_KEY);
-    if (this.isBackend() && refreshToken && !refreshToken.startsWith('mock.')) {
-      void firstValueFrom(this.http.post(`${environment.apiBaseUrl}/auth/logout`, { refreshToken })).catch(() => undefined);
+    if (this.isBackend() && hadSession) {
+      void firstValueFrom(this.http.post(`${environment.apiBaseUrl}/auth/logout`, {})).catch(() => undefined);
     }
     if (redirect) void this.router.navigateByUrl('/login');
   }
@@ -89,6 +89,20 @@ export class AuthService {
   }
 
   private async refreshAccessTokenInternal(): Promise<boolean> {
+    if (this.isBackend()) {
+      try {
+        const response = await firstValueFrom(
+          this.http.post<AuthResponse>(`${environment.apiBaseUrl}/auth/refresh`, {}),
+        );
+        this.persist(response);
+        return true;
+      } catch {
+        this.clearTimer();
+        this.session.set(null);
+        return false;
+      }
+    }
+
     const current = this.readSession() ?? this.session();
     if (!current?.refreshToken) return false;
     if (new Date(current.refreshExpiresAt).getTime() <= Date.now()) {
@@ -97,12 +111,7 @@ export class AuthService {
     }
 
     try {
-      const response = this.isBackend() && !current.refreshToken.startsWith('mock.')
-        ? await firstValueFrom(this.http.post<AuthResponse>(`${environment.apiBaseUrl}/auth/refresh`, {
-            refreshToken: current.refreshToken,
-          }))
-        : this.refreshMock(current);
-      this.persist(response);
+      this.persist(this.refreshMock(current));
       return true;
     } catch {
       this.logout(false);
@@ -114,12 +123,16 @@ export class AuthService {
     const stored: StoredAuth = {
       token: response.token,
       expiresAt: response.expiresAt,
-      refreshToken: response.refreshToken,
+      refreshToken: response.refreshToken ?? '',
       refreshExpiresAt: response.refreshExpiresAt,
       user: response.user,
     };
     this.session.set(stored);
-    sessionStorage.setItem(AUTH_KEY, JSON.stringify(stored));
+    if (!this.isBackend()) {
+      sessionStorage.setItem(AUTH_KEY, JSON.stringify(stored));
+    } else {
+      sessionStorage.removeItem(AUTH_KEY);
+    }
     this.scheduleRefresh(stored.expiresAt);
   }
 
@@ -149,6 +162,7 @@ export class AuthService {
   }
 
   private readSession(): StoredAuth | null {
+    if (this.isBackend()) return null;
     try {
       const raw = sessionStorage.getItem(AUTH_KEY);
       if (!raw) return null;

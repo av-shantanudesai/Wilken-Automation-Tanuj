@@ -176,7 +176,9 @@ public class AuthResponseDto
 {
     public string Token { get; set; } = "";
     public DateTime ExpiresAt { get; set; }
-    public string RefreshToken { get; set; } = "";
+    /// <summary>Omitted from HTTP JSON (httpOnly cookie). Present when issued by AuthService.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? RefreshToken { get; set; }
     public DateTime RefreshExpiresAt { get; set; }
     public AuthUserDto User { get; set; } = default!;
 }

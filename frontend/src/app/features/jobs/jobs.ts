@@ -2,6 +2,7 @@ import { Component, OnDestroy, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
+import { RealtimeService } from '../../core/realtime.service';
 import { Job, JobDetail, JobStatus } from '../../core/models';
 import { describeError } from '../../core/errors';
 
@@ -13,6 +14,7 @@ import { describeError } from '../../core/errors';
 })
 export class JobsPage implements OnDestroy {
   readonly api = inject(ApiService);
+  readonly realtime = inject(RealtimeService);
 
   readonly statuses: JobStatus[] = [
     'Pending', 'Running', 'Retry', 'SuccessWithData', 'SuccessEmpty', 'FailedFinal',
@@ -34,6 +36,11 @@ export class JobsPage implements OnDestroy {
   constructor() {
     this.load();
     this.timer = setInterval(() => this.load(), 3000);
+    if (this.api.mode() === 'backend') {
+      this.realtime.connect();
+      const runId = this.api.selectedRunId();
+      if (runId) void this.realtime.subscribeToRun(runId);
+    }
   }
 
   ngOnDestroy(): void {
@@ -45,8 +52,10 @@ export class JobsPage implements OnDestroy {
     if (!runId) {
       this.jobs.set([]);
       this.total.set(0);
+      void this.realtime.subscribeToRun(null);
       return;
     }
+    void this.realtime.subscribeToRun(runId);
     try {
       const result = await this.api.listJobs({
         runId,

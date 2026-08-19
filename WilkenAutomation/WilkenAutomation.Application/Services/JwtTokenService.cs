@@ -17,6 +17,7 @@ public static class HubGroups
 {
     public const string Workers = "workers";
     public static string User(long userId) => $"user:{userId}";
+    public static string Run(string runId) => $"run:{runId}";
 }
 
 public class JwtTokenService
@@ -24,28 +25,51 @@ public class JwtTokenService
     public const string UserIdClaim = "uid";
 
     private readonly JwtOptions _options;
-    private readonly SymmetricSecurityKey _key;
+    private readonly SymmetricSecurityKey _userKey;
+    private readonly SymmetricSecurityKey _workerKey;
 
     public JwtTokenService(JwtOptions options)
     {
         _options = options;
         if (string.IsNullOrWhiteSpace(options.Key) || options.Key.Length < 32)
             throw new InvalidOperationException("Jwt:Key must be configured and at least 32 characters (set Jwt__Key).");
-        _key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.Key));
+        _userKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.Key));
+
+        var workerSecret = string.IsNullOrWhiteSpace(options.WorkerKey) ? options.Key : options.WorkerKey;
+        if (workerSecret.Length < 32)
+            throw new InvalidOperationException("Jwt:WorkerKey must be at least 32 characters (set Jwt__WorkerKey).");
+        _workerKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(workerSecret));
     }
 
     public static void EnsureProductionKey(JwtOptions options, string environmentName)
     {
-        if (string.Equals(environmentName, "Production", StringComparison.OrdinalIgnoreCase)
-            && options.Key.Contains("DevOnly", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(environmentName, "Production", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (options.Key.Contains("DevOnly", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
                 "Refusing to start in Production with the committed development Jwt:Key. Set Jwt__Key to a unique secret.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.WorkerKey)
+            || options.WorkerKey.Contains("DevOnly", StringComparison.OrdinalIgnoreCase)
+            || options.WorkerKey == options.Key)
+        {
+            throw new InvalidOperationException(
+                "Refusing to start in Production without a distinct Jwt:WorkerKey. Set Jwt__WorkerKey.");
         }
     }
 
     public int AccessTokenMinutes => Math.Clamp(_options.AccessTokenMinutes, 5, 60);
     public int RefreshTokenDays => Math.Clamp(_options.RefreshTokenDays, 1, 30);
+    public int WorkerTokenHours => Math.Clamp(_options.WorkerTokenHours, 1, 4);
+    public string UserAudience => _options.Audience;
+    public string WorkerAudience =>
+        string.IsNullOrWhiteSpace(_options.WorkerAudience) ? "WilkenAutomation.Worker" : _options.WorkerAudience;
+    public string Issuer => _options.Issuer;
+    public IEnumerable<SecurityKey> SigningKeys => new SecurityKey[] { _userKey, _workerKey };
+    public IEnumerable<string> ValidAudiences => new[] { UserAudience, WorkerAudience };
 
     public (string Token, DateTime ExpiresAt) CreateUserToken(AppUser user)
     {
@@ -59,27 +83,27 @@ public class JwtTokenService
             new Claim(ClaimTypes.Name, user.DisplayName),
             new Claim(ClaimTypes.Role, AuthRoles.User)
         };
-        return (WriteToken(claims, expires), expires);
+        return (WriteToken(claims, expires, _userKey, UserAudience), expires);
     }
 
     public string CreateWorkerToken()
     {
-        var hours = Math.Clamp(_options.WorkerTokenHours, 1, 24);
-        var expires = DateTime.UtcNow.AddHours(hours);
+        var expires = DateTime.UtcNow.AddHours(WorkerTokenHours);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, "worker"),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
             new Claim(ClaimTypes.Role, AuthRoles.Worker)
         };
-        return WriteToken(claims, expires);
+        return WriteToken(claims, expires, _workerKey, WorkerAudience);
     }
 
-    private string WriteToken(IEnumerable<Claim> claims, DateTime expires)
+    private string WriteToken(IEnumerable<Claim> claims, DateTime expires, SymmetricSecurityKey key, string audience)
     {
-        var creds = new SigningCredentials(_key, SecurityAlgorithms.HmacSha256);
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
             issuer: _options.Issuer,
-            audience: _options.Audience,
+            audience: audience,
             claims: claims,
             notBefore: DateTime.UtcNow.AddSeconds(-5),
             expires: expires,
