@@ -1,7 +1,6 @@
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
-using FlaUI.Core.Input;
-using FlaUI.Core.WindowsAPI;
+using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Services;
 
 namespace WilkenAutomation.Worker.Wilken;
@@ -9,9 +8,9 @@ namespace WilkenAutomation.Worker.Wilken;
 public partial class WindowsWilkenAutomationService
 {
     /// <summary>
-    /// WPF ComboBox.Select() expands a popup whose items are not children of the
-    /// combo in the UIA tree, so FlaUI leaves the dropdown open and never selects.
-    /// Prefer Value/editable text, then click the popup ListItem, then keyboard.
+    /// Select a combo/text field without mouse, keyboard, or focus theft.
+    /// Prefer UIA Value / editable text; ExpandCollapse + SelectionItem is the
+    /// only fallback. Never Click() or Keyboard.Type().
     /// </summary>
     private async Task SetSelectorValueAsync(string selectorKey, string value, CancellationToken ct)
     {
@@ -19,7 +18,7 @@ public partial class WindowsWilkenAutomationService
         if (field.ControlType == ControlType.ComboBox)
             await SelectComboItemAsync(selectorKey, field, value, ct);
         else
-            field.AsTextBox().Text = value;
+            SetControlValue(field, value);
 
         await WaitUntilUiAsync(
             () => ControlShowsValue(TryFind(selectorKey), value),
@@ -29,16 +28,17 @@ public partial class WindowsWilkenAutomationService
 
     private async Task SelectComboItemAsync(string selectorKey, AutomationElement field, string value, CancellationToken ct)
     {
-        TryCollapse(field);
-
-        if (await TryClickComboListItemAsync(selectorKey, value, ct))
+        var applied = false;
+        WithoutStealingInput(() =>
+            applied = TrySetComboText(field, value) && ControlShowsValue(Find(selectorKey), value));
+        if (applied)
             return;
 
-        field = Find(selectorKey);
-        if (TrySetComboText(field, value) && ControlShowsValue(field, value))
+        if (await TrySelectComboViaExpandAsync(selectorKey, value, ct))
             return;
 
-        TryTypeComboValue(Find(selectorKey), value);
+        throw new WilkenAutomationException("COMBO_SELECT_FAILED",
+            $"Could not set '{selectorKey}' to '{value}' via UIA Value/Selection patterns (mouse/keyboard are disabled).");
     }
 
     private static bool TrySetComboText(AutomationElement field, string value)
@@ -49,7 +49,7 @@ public partial class WindowsWilkenAutomationService
             if (combo.IsEditable)
             {
                 combo.EditableText = value;
-                return true;
+                if (ControlShowsValue(field, value)) return true;
             }
         }
         catch
@@ -73,11 +73,26 @@ public partial class WindowsWilkenAutomationService
         return false;
     }
 
-    private async Task<bool> TryClickComboListItemAsync(string selectorKey, string value, CancellationToken ct)
+    private async Task<bool> TrySelectComboViaExpandAsync(string selectorKey, string value, CancellationToken ct)
     {
-        var field = Find(selectorKey);
-        try { field.AsComboBox().Expand(); }
-        catch { field.Click(); }
+        var expanded = false;
+        WithoutStealingInput(() =>
+        {
+            var field = Find(selectorKey);
+            try
+            {
+                if (field.Patterns.ExpandCollapse.IsSupported)
+                    field.Patterns.ExpandCollapse.Pattern.Expand();
+                else
+                    field.AsComboBox().Expand();
+                expanded = true;
+            }
+            catch
+            {
+                expanded = false;
+            }
+        });
+        if (!expanded) return false;
 
         AutomationElement? item = null;
         try
@@ -93,26 +108,42 @@ public partial class WindowsWilkenAutomationService
         }
         catch (WaitTimeoutException)
         {
-            TryCollapse(TryFind(selectorKey));
+            WithoutStealingInput(() => TryCollapse(TryFind(selectorKey)));
             return false;
         }
 
+        var selected = false;
+        WithoutStealingInput(() =>
+        {
+            selected = TrySelectListItem(item!);
+            TryCollapse(TryFind(selectorKey));
+        });
+        return selected && ControlShowsValue(TryFind(selectorKey), value);
+    }
+
+    private static bool TrySelectListItem(AutomationElement item)
+    {
         try
         {
-            if (item!.Patterns.SelectionItem.IsSupported)
+            if (item.Patterns.SelectionItem.IsSupported)
+            {
                 item.Patterns.SelectionItem.Pattern.Select();
-            else if (item.Patterns.Invoke.IsSupported)
-                item.Patterns.Invoke.Pattern.Invoke();
-            else
-                item.Click();
+                return true;
+            }
         }
-        catch
-        {
-            item!.Click();
-        }
+        catch { }
 
-        TryCollapse(TryFind(selectorKey));
-        return ControlShowsValue(TryFind(selectorKey), value);
+        try
+        {
+            if (item.Patterns.Invoke.IsSupported)
+            {
+                item.Patterns.Invoke.Pattern.Invoke();
+                return true;
+            }
+        }
+        catch { }
+
+        return false;
     }
 
     private AutomationElement? FindComboListItem(string value)
@@ -200,19 +231,16 @@ public partial class WindowsWilkenAutomationService
         return null;
     }
 
-    private static void TryTypeComboValue(AutomationElement field, string value)
-    {
-        TryCollapse(field);
-        field.Focus();
-        Keyboard.Type(value);
-        Keyboard.Press(VirtualKeyShort.ENTER);
-        TryCollapse(field);
-    }
-
     private static void TryCollapse(AutomationElement? field)
     {
         if (field is null) return;
-        try { field.AsComboBox().Collapse(); }
+        try
+        {
+            if (field.Patterns.ExpandCollapse.IsSupported)
+                field.Patterns.ExpandCollapse.Pattern.Collapse();
+            else
+                field.AsComboBox().Collapse();
+        }
         catch { }
     }
 

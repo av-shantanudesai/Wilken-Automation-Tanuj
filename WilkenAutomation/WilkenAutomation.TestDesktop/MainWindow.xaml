@@ -4,6 +4,9 @@
         Title="Wilken CS/2 Test Desktop"
         Height="720" Width="980"
         WindowStartupLocation="CenterScreen"
+        ShowActivated="False"
+        WindowState="Minimized"
+        ShowInTaskbar="True"
         Background="#F4F6F8">
     <Grid>
         <DockPanel x:Name="MainWorkspace" Visibility="Collapsed">

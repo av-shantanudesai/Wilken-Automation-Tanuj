@@ -3,6 +3,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Threading;
 using WilkenAutomation.Application.Validators;
 
@@ -40,6 +41,23 @@ public partial class MainWindow : Window
 
         _noticeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         _noticeTimer.Tick += (_, _) => ShowNotice();
+    }
+
+    /// <summary>
+    /// UIA SetValue/Invoke tries to focus controls. If the user is working in
+    /// another app (this window is not active), refuse keyboard focus so typing
+    /// is not interrupted. When the user restores this window to watch, it is
+    /// active and focus is allowed.
+    /// </summary>
+    protected override void OnPreviewGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        if (!IsActive || WindowState == WindowState.Minimized)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        base.OnPreviewGotKeyboardFocus(e);
     }
 
     private Panel RootPanel => (Panel)Content;

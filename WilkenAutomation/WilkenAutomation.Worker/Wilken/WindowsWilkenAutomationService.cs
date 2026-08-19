@@ -54,6 +54,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
         var processName = EffectiveProcessName();
         var existing = GetWilkenProcesses(processName);
+        var launched = false;
         if (existing.Length > 0)
         {
             _app = FlaUI.Core.Application.Attach(existing[0]);
@@ -63,11 +64,13 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                 _logger.LogWarning("Wilken process {Pid} has no main window (user closed it). Restarting.", existing[0].Id);
                 await KillTrackedProcessAsync();
                 LaunchWilken();
+                launched = true;
             }
         }
         else
         {
             LaunchWilken();
+            launched = true;
         }
 
         await WaitHelper.WaitUntilAsync(() =>
@@ -78,6 +81,9 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         TimeSpan.FromSeconds(_options.StartupTimeoutSeconds),
         TimeSpan.FromMilliseconds(_options.PollingIntervalMs),
         $"Wilken main window '{_options.MainWindowTitle}'", ct);
+
+        if (launched)
+            MinimizeWithoutActivating();
 
         HandleDialogs();
         await LoginIfRequiredAsync(ct);
@@ -97,8 +103,8 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
             ?? throw new WilkenAutomationException("CREDENTIALS_MISSING",
                 "Wilken login screen detected but no credentials are configured (Wilken:Username / WILKEN_PASSWORD).");
 
-        userBox.AsTextBox().Text = credentials.Username;
-        Find("LoginPassword").AsTextBox().Text = credentials.Password;
+        SetControlValue(userBox, credentials.Username);
+        SetControlValue(Find("LoginPassword"), credentials.Password);
         InvokeControl(Find("LoginButton"));
         _logger.LogInformation("Login submitted for user (name not logged).");
 
@@ -131,7 +137,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         GuardHealthy();
         HandleDialogs();
         var field = Find("FiscalYearField");
-        field.AsTextBox().Text = fiscalYear.ToString();
+        SetControlValue(field, fiscalYear.ToString());
         await WaitUntilUiAsync(
             () => ControlShowsValue(TryFind("FiscalYearField"), fiscalYear.ToString()),
             TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
@@ -210,7 +216,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
             "save dialog", ct);
 
         var nameBox = Find("SaveDialogFileName");
-        nameBox.AsTextBox().Text = tempPath;
+        SetControlValue(nameBox, tempPath);
         await WaitUntilUiAsync(
             () => ReadValue(Find("SaveDialogFileName")).Contains(tempPath, StringComparison.OrdinalIgnoreCase)
                   || ControlShowsValue(TryFind("SaveDialogFileName"), Path.GetFileName(tempPath)),
@@ -244,41 +250,125 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
     /// <summary>Diagnostics: dump the Wilken control tree for selector mapping.</summary>
     public string DumpControlTree() => UiaTreeDumper.DumpWindowByTitle(_options.MainWindowTitle);
 
+    /// <summary>
+    /// Raise a control's action through UIA patterns only. Never uses mouse Click,
+    /// which would steal the cursor and bring the window to the foreground.
+    /// </summary>
     private void InvokeControl(AutomationElement element)
     {
-        var invoked = false;
-        try
+        WithoutStealingInput(() =>
         {
-            if (element.Patterns.Invoke.IsSupported)
+            try
             {
-                element.Patterns.Invoke.Pattern.Invoke();
-                invoked = true;
+                if (element.Patterns.Invoke.IsSupported)
+                {
+                    element.Patterns.Invoke.Pattern.Invoke();
+                    return;
+                }
             }
-        }
-        catch
-        {
-            // WPF sometimes exposes Invoke but fails to raise the routed event.
-        }
+            catch
+            {
+                // WPF sometimes exposes Invoke but fails to raise the routed event.
+            }
 
-        if (element.ControlType == ControlType.MenuItem)
-        {
-            if (invoked) return;
-            element.AsMenuItem().Invoke();
-            return;
-        }
+            if (element.ControlType == ControlType.MenuItem)
+            {
+                element.AsMenuItem().Invoke();
+                return;
+            }
 
+            try
+            {
+                element.AsButton().Invoke();
+                return;
+            }
+            catch
+            {
+                // Fall through to a clear error.
+            }
+
+            throw new WilkenAutomationException("CONTROL_INVOKE_FAILED",
+                $"Control '{element.AutomationId ?? element.Name}' does not support UIA Invoke. Mouse clicks are disabled.");
+        });
+    }
+
+    private void SetControlValue(AutomationElement element, string value)
+    {
+        WithoutStealingInput(() =>
+        {
+            try
+            {
+                if (element.Patterns.Value.IsSupported && !element.Patterns.Value.Pattern.IsReadOnly.ValueOrDefault)
+                {
+                    element.Patterns.Value.Pattern.SetValue(value);
+                    return;
+                }
+            }
+            catch
+            {
+                // Try editable combo below.
+            }
+
+            try
+            {
+                var combo = element.AsComboBox();
+                if (combo.IsEditable)
+                {
+                    combo.EditableText = value;
+                    return;
+                }
+            }
+            catch
+            {
+                // Not a combo.
+            }
+
+            throw new WilkenAutomationException("VALUE_PATTERN_UNSUPPORTED",
+                $"Control '{element.AutomationId ?? element.Name}' cannot be set via UIA Value pattern. Keyboard typing is disabled.");
+        });
+    }
+
+    private void WithoutStealingInput(Action action)
+    {
+        using (UserInputGuard.Capture(_app?.ProcessId ?? 0))
+            action();
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private const int SwShowMinNoActivate = 7;
+
+    /// <summary>
+    /// Used only after we launch the process. Never re-minimize afterwards —
+    /// the user must be able to restore the window from the taskbar to watch.
+    /// </summary>
+    private void MinimizeWithoutActivating()
+    {
         try
         {
-            element.Click();
-        }
-        catch when (invoked)
-        {
-            // Invoke already succeeded.
+            var hwnd = NativeMainWindowHandle();
+            if (hwnd != IntPtr.Zero)
+                ShowWindow(hwnd, SwShowMinNoActivate);
         }
         catch
         {
-            if (!invoked)
-                element.AsButton().Invoke();
+            // Best effort; never fail a job because of z-order.
+        }
+    }
+
+    private IntPtr NativeMainWindowHandle()
+    {
+        try
+        {
+            _mainWindow = FindMainWindow() ?? _mainWindow;
+            if (_mainWindow is null) return IntPtr.Zero;
+            var handle = _mainWindow.Properties.NativeWindowHandle.ValueOrDefault;
+            return handle == 0 ? IntPtr.Zero : new IntPtr(handle);
+        }
+        catch
+        {
+            return IntPtr.Zero;
         }
     }
 
@@ -372,8 +462,13 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                 $"Wilken executable not configured or missing: '{_options.ExecutablePath}'. Set Wilken:ExecutablePath.",
                 sessionLost: true);
 
-        _app = FlaUI.Core.Application.Launch(_options.ExecutablePath);
-        _logger.LogInformation("Launched Wilken CS/2 ({Path}).", _options.ExecutablePath);
+        _app = FlaUI.Core.Application.Launch(new ProcessStartInfo
+        {
+            FileName = _options.ExecutablePath,
+            UseShellExecute = true,
+            WindowStyle = ProcessWindowStyle.Minimized
+        });
+        _logger.LogInformation("Launched Wilken CS/2 ({Path}). Starts minimized; restore from the taskbar to watch. Automation uses UIA only (no mouse).", _options.ExecutablePath);
     }
 
     private async Task KillTrackedProcessAsync()
