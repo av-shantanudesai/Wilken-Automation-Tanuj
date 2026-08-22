@@ -61,6 +61,14 @@ public partial class WindowsWilkenAutomationService
 
     private bool IsKnownDialog(string title)
     {
+        if (IsReplica && (
+            title.Contains("Zugangsliste", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Anlagenspiegel", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Fortschritt", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Druckauswahl", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Gitterbox", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
         var known = _options.Selectors.GetValueOrDefault("KnownDialogTitles", "")
             .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return known.Any(k => title.Contains(k, StringComparison.OrdinalIgnoreCase));

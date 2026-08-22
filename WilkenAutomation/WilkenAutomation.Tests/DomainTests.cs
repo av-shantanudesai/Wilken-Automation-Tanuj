@@ -161,6 +161,47 @@ public class FileValidatorTests : IDisposable
         Assert.Contains("Client mismatch", result.Detail);
     }
 
+    [Fact]
+    public async Task ValidXlsx_IsValid_WithRecordCount()
+    {
+        var path = WriteReplicaXlsx("Zugangsliste", "Handelsrecht", 7);
+        var result = await _ctx.Validator.ValidateAsync(path, _job, true, CancellationToken.None);
+        Assert.Equal(ValidationStatus.Valid, result.Status);
+        Assert.Equal(7, result.RecordCount);
+    }
+
+    [Fact]
+    public async Task XlsxWrongDepartment_IsInvalid()
+    {
+        var path = WriteReplicaXlsx("Anlagenspiegel nach Anlagen", "Steuerrecht", 3);
+        var result = await _ctx.Validator.ValidateAsync(path, _job, true, CancellationToken.None);
+        Assert.Equal(ValidationStatus.Invalid, result.Status);
+        Assert.Contains("Department mismatch", result.Detail);
+    }
+
+    [Fact]
+    public async Task CorruptZip_IsInvalid()
+    {
+        var path = Path.Combine(_ctx.WorkDirectory, $"{Guid.NewGuid():N}.xlsx");
+        await File.WriteAllTextAsync(path, "not-a-zip");
+        var result = await _ctx.Validator.ValidateAsync(path, _job, true, CancellationToken.None);
+        Assert.Equal(ValidationStatus.Invalid, result.Status);
+    }
+
+    private string WriteReplicaXlsx(string report, string fachbereich, int records)
+    {
+        var path = Path.Combine(_ctx.WorkDirectory, $"{Guid.NewGuid():N}.xlsx");
+        using var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create);
+        var entry = zip.CreateEntry("xl/worksheets/sheet1.xml");
+        using var writer = new StreamWriter(entry.Open());
+        writer.Write("<?xml version=\"1.0\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+        writer.Write("<row r=\"1\"><c t=\"inlineStr\"><is><t>Report</t></is></c></row>");
+        for (var i = 1; i <= records; i++)
+            writer.Write($"<row r=\"{i + 1}\"><c t=\"inlineStr\"><is><t>{report}</t></is></c><c t=\"inlineStr\"><is><t>{fachbereich}</t></is></c></row>");
+        writer.Write("</sheetData></worksheet>");
+        return path;
+    }
+
     public void Dispose() => _ctx.Dispose();
 }
 

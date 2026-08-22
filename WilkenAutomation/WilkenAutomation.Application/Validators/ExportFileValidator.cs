@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Xml.Linq;
 using WilkenAutomation.Application.Enums;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Models;
@@ -11,10 +13,8 @@ namespace WilkenAutomation.Application.Validators;
 ///  3. Structural     - expected report marker, data section, header, end marker
 ///  4. Data-level     - record count; zero records => ValidEmpty, never automatic failure
 ///
-/// Levels 2-4 parse the report metadata header that the mock export writes and
-/// that the real Wilken export handler is expected to map onto its own format
-/// (for xlsx exports a format-specific reader can replace this implementation
-/// behind the same interface).
+/// CSV mock exports use the metadata header below. Replica/Wilken XLSX files
+/// are validated as Office Open XML packages with sheet row counts.
 /// </summary>
 public class ExportFileValidator : IExportFileValidator
 {
@@ -25,12 +25,14 @@ public class ExportFileValidator : IExportFileValidator
     public async Task<FileValidationResult> ValidateAsync(
         string filePath, ExportJob job, bool contentValidation, CancellationToken ct)
     {
-        // Level 1 - file
         var info = new FileInfo(filePath);
         if (!info.Exists)
             return new FileValidationResult(ValidationStatus.Invalid, null, "File does not exist.");
         if (info.Length == 0)
             return new FileValidationResult(ValidationStatus.Invalid, null, "File is empty (0 bytes).");
+
+        if (filePath.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            return ValidateXlsx(filePath, job, contentValidation);
 
         string[] lines;
         try
@@ -45,7 +47,6 @@ public class ExportFileValidator : IExportFileValidator
         if (!contentValidation)
             return new FileValidationResult(ValidationStatus.Valid, null, "File-level validation only (content validation disabled).");
 
-        // Level 3 - structure
         if (lines.Length == 0 || !lines[0].Contains(ReportMarker))
             return new FileValidationResult(ValidationStatus.Invalid, null, "Missing report marker - unexpected file format.");
         if (!lines.Contains(EndMarker))
@@ -58,7 +59,6 @@ public class ExportFileValidator : IExportFileValidator
             .Where(p => p.Length == 2)
             .ToDictionary(p => p[0].Trim(), p => p[1].Trim(), StringComparer.OrdinalIgnoreCase);
 
-        // Level 2 - job identity from content, not filename
         if (!meta.TryGetValue("Client", out var client) || client != job.Client)
             return new FileValidationResult(ValidationStatus.Invalid, null,
                 $"Client mismatch: file contains '{meta.GetValueOrDefault("Client", "<missing>")}', expected '{job.Client}'.");
@@ -69,13 +69,11 @@ public class ExportFileValidator : IExportFileValidator
             return new FileValidationResult(ValidationStatus.Invalid, null,
                 $"Department mismatch: file contains '{meta.GetValueOrDefault("Department", "<missing>")}', expected '{job.Department}'.");
 
-        // Level 4 - data
         var dataIndex = Array.IndexOf(lines, DataMarker);
         var endIndex = Array.IndexOf(lines, EndMarker);
         if (dataIndex < 0 || endIndex < dataIndex)
             return new FileValidationResult(ValidationStatus.Invalid, null, "Data section missing or malformed.");
 
-        // Rows between the data marker (followed by one header row) and the end marker.
         var recordCount = Math.Max(0, endIndex - dataIndex - 2);
 
         if (meta.TryGetValue("RecordCount", out var declared) &&
@@ -88,5 +86,50 @@ public class ExportFileValidator : IExportFileValidator
         return recordCount == 0
             ? new FileValidationResult(ValidationStatus.ValidEmpty, 0, "Valid export, period legitimately contains no data.")
             : new FileValidationResult(ValidationStatus.Valid, recordCount, $"Valid export containing {recordCount} records.");
+    }
+
+    private static FileValidationResult ValidateXlsx(string filePath, ExportJob job, bool contentValidation)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(filePath);
+            var sheet = zip.GetEntry("xl/worksheets/sheet1.xml")
+                ?? zip.Entries.FirstOrDefault(e => e.FullName.StartsWith("xl/worksheets/", StringComparison.OrdinalIgnoreCase)
+                                                 && e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
+            if (sheet is null)
+                return new FileValidationResult(ValidationStatus.Invalid, null, "XLSX is missing a worksheet part.");
+
+            using var stream = sheet.Open();
+            var xml = XDocument.Load(stream);
+            var texts = xml.Descendants().Where(e => e.Name.LocalName == "t").Select(e => e.Value).ToList();
+            var rows = xml.Descendants().Count(e => e.Name.LocalName == "row");
+            var recordCount = Math.Max(0, rows - 1);
+
+            if (!contentValidation)
+                return new FileValidationResult(
+                    recordCount == 0 ? ValidationStatus.ValidEmpty : ValidationStatus.Valid,
+                    recordCount,
+                    "XLSX package is readable (content validation disabled).");
+
+            var blob = string.Join(" ", texts);
+            if (!string.IsNullOrWhiteSpace(job.Department)
+                && !blob.Contains(job.Department, StringComparison.OrdinalIgnoreCase))
+            {
+                return new FileValidationResult(ValidationStatus.Invalid, recordCount,
+                    $"Department mismatch: XLSX does not contain '{job.Department}'.");
+            }
+
+            return recordCount == 0
+                ? new FileValidationResult(ValidationStatus.ValidEmpty, 0, "Valid XLSX, period contains no data rows.")
+                : new FileValidationResult(ValidationStatus.Valid, recordCount, $"Valid XLSX containing {recordCount} records.");
+        }
+        catch (InvalidDataException ex)
+        {
+            return new FileValidationResult(ValidationStatus.Invalid, null, $"XLSX is not a valid Office Open XML package: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            return new FileValidationResult(ValidationStatus.Invalid, null, $"XLSX is not a valid Office Open XML package: {ex.Message}");
+        }
     }
 }

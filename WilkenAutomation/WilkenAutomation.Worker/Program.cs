@@ -31,10 +31,11 @@ if (forceDesktopTest)
     builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
     {
         ["Worker:AutomationMode"] = "DesktopTest",
-        ["Wilken:Username"] = "tester",
-        ["Wilken:Password"] = "tester",
-        ["Wilken:MainWindowTitle"] = "Wilken CS/2 Test Desktop",
-        ["Wilken:ProcessName"] = "WilkenAutomation.TestDesktop"
+        ["Wilken:Username"] = "",
+        ["Wilken:Password"] = "",
+        ["Wilken:MainWindowTitle"] = "Wilken_CS/2_Finanzmanagement",
+        ["Wilken:ProcessName"] = "WilkenCs2ReplicaMock",
+        ["Export:FileExtension"] = ".xlsx"
     });
 }
 
@@ -95,15 +96,16 @@ Console.WriteLine("============================================================"
 switch (workerSettings.AutomationMode)
 {
     case AutomationMode.DesktopTest:
-        Console.WriteLine("MODE: DesktopTest — dummy Windows UI will open.");
+        Console.WriteLine("MODE: DesktopTest — Wilken CS/2 replica UI will open.");
         Console.WriteLine($"Exe: {wilkenOptions.ExecutablePath}");
+        Console.WriteLine("Handelsrecht → Zugangsliste; Steuerrecht → Anlagenspiegel. Exports are XLSX.");
         break;
     case AutomationMode.Wilken:
         Console.WriteLine("MODE: Wilken — real Wilken CS/2 desktop automation.");
         break;
     default:
         Console.WriteLine("MODE: Mock — NO desktop window. Jobs are simulated.");
-        Console.WriteLine("To open the dummy UI instead, run:");
+        Console.WriteLine("To drive the Wilken CS/2 replica instead, run:");
         Console.WriteLine("  dotnet run --project WilkenAutomation.Worker -- --desktop-test");
         break;
 }
@@ -121,49 +123,38 @@ host.Run();
 
 static void ApplyDesktopTestDefaults(WilkenOptions options)
 {
-    options.MainWindowTitle = "Wilken CS/2 Test Desktop";
-    options.ProcessName = "WilkenAutomation.TestDesktop";
+    options.MainWindowTitle = "Wilken_CS/2_Finanzmanagement";
+    options.ProcessName = "WilkenCs2ReplicaMock";
     if (options.PollingIntervalMs <= 0) options.PollingIntervalMs = 400;
 
-    void Set(string key, string value)
-    {
-        if (!options.Selectors.TryGetValue(key, out var current) || string.IsNullOrWhiteSpace(current))
-            options.Selectors[key] = value;
-    }
+    void Set(string key, string value) => options.Selectors[key] = value;
 
-    Set("LoginUsername", "AutomationId:LoginUsername");
-    Set("LoginPassword", "AutomationId:LoginPassword");
-    Set("LoginButton", "AutomationId:LoginButton");
-    Set("ClientField", "AutomationId:ClientField");
-    Set("AssetAccountingMenu", "AutomationId:AssetAccountingMenu");
-    Set("AssetAccountingWindowMarker", "AutomationId:AssetAccountingWindowMarker");
-    Set("FiscalYearField", "AutomationId:FiscalYearField");
-    Set("DepartmentField", "AutomationId:DepartmentField");
-    Set("ExecuteButton", "AutomationId:ExecuteButton");
-    Set("ReportStatusIndicator", "AutomationId:ReportStatusIndicator");
-    Set("ReportReadyText", "Ready");
-    Set("SpoolMenu", "AutomationId:SpoolMenu");
-    Set("SpoolList", "AutomationId:SpoolList");
-    Set("ExportButton", "AutomationId:ExportButton");
-    Set("SaveDialogFileName", "AutomationId:SaveDialogFileName");
-    Set("SaveDialogConfirm", "AutomationId:SaveDialogConfirm");
-    Set("UnexpectedDialog", "AutomationId:UnexpectedDialog");
-    Set("DialogOkButton", "AutomationId:DialogOkButton");
-    Set("KnownDialogTitles", "Save export");
-    Set("DismissibleButtonNames", "OK|Close|Ja|Yes|Weiter");
+    // Replica has no login screen.
+    Set("LoginUsername", "");
+    Set("LoginPassword", "");
+    Set("LoginButton", "");
+    Set("ExecuteButton", "AutomationId:Toolbar_Execute");
+    Set("SpoolList", "AutomationId:Spool_Grid");
+    Set("KnownDialogTitles", "Zugangsliste|Anlagenspiegel|Fortschritt|Druckauswahl|Gitterbox");
+    Set("DismissibleButtonNames", "OK|Close|Weiter");
 }
 
 static void ResolveDesktopTestExecutable(WilkenOptions options, string contentRoot)
 {
     options.ProcessName = string.IsNullOrWhiteSpace(options.ProcessName)
-        ? "WilkenAutomation.TestDesktop"
+        ? "WilkenCs2ReplicaMock"
         : options.ProcessName;
 
     if (!string.IsNullOrWhiteSpace(options.ExecutablePath) && File.Exists(options.ExecutablePath))
         return;
 
+    var replicaRoot = Path.GetFullPath(Path.Combine(contentRoot, "..", "..", "WilkenCs2ReplicaMock", "src", "WilkenCs2ReplicaMock"));
     var candidates = new[]
     {
+        Path.Combine(AppContext.BaseDirectory, "Replica", "WilkenCs2ReplicaMock.exe"),
+        Path.Combine(AppContext.BaseDirectory, "WilkenCs2ReplicaMock.exe"),
+        Path.Combine(replicaRoot, "bin", "Debug", "net8.0-windows", "WilkenCs2ReplicaMock.exe"),
+        Path.Combine(replicaRoot, "bin", "Release", "net8.0-windows", "WilkenCs2ReplicaMock.exe"),
         Path.Combine(AppContext.BaseDirectory, "WilkenAutomation.TestDesktop.exe"),
         Path.GetFullPath(Path.Combine(contentRoot, "..", "WilkenAutomation.TestDesktop", "bin", "Debug", "net8.0-windows", "WilkenAutomation.TestDesktop.exe")),
         Path.GetFullPath(Path.Combine(contentRoot, "..", "WilkenAutomation.TestDesktop", "bin", "Release", "net8.0-windows", "WilkenAutomation.TestDesktop.exe"))

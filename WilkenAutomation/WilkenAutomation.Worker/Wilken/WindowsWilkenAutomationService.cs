@@ -28,7 +28,14 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
     private FlaUI.Core.Application? _app;
     private Window? _mainWindow;
 
+    private ExportJob? _job;
+    private DateTime _runStartedAtUtc;
+
     public WilkenSessionStatus SessionStatus { get; private set; } = WilkenSessionStatus.NotRunning;
+
+    private bool IsReplica =>
+        (_options.ProcessName ?? "").Contains("WilkenCs2ReplicaMock", StringComparison.OrdinalIgnoreCase)
+        || (_options.MainWindowTitle ?? "").Contains("Wilken_CS/2", StringComparison.OrdinalIgnoreCase);
 
     public WindowsWilkenAutomationService(
         WilkenOptions options,
@@ -42,7 +49,12 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         _logger = logger;
     }
 
-    public Task BeginJobAsync(ExportJob job, RunConfig config, CancellationToken ct) => Task.CompletedTask;
+    public Task BeginJobAsync(ExportJob job, RunConfig config, CancellationToken ct)
+    {
+        _job = job;
+        _runStartedAtUtc = DateTime.UtcNow;
+        return Task.CompletedTask;
+    }
 
     public async Task EnsureSessionAsync(CancellationToken ct)
     {
@@ -82,7 +94,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         TimeSpan.FromMilliseconds(_options.PollingIntervalMs),
         $"Wilken main window '{_options.MainWindowTitle}'", ct);
 
-        if (launched)
+        if (launched && !IsReplica)
             MinimizeWithoutActivating();
 
         HandleDialogs();
@@ -116,6 +128,11 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task SelectClientAsync(string client, CancellationToken ct)
     {
+        if (IsReplica)
+        {
+            GuardHealthy();
+            return;
+        }
         GuardHealthy();
         HandleDialogs();
         await SetSelectorValueAsync("ClientField", client, ct);
@@ -123,6 +140,11 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task OpenAssetAccountingAsync(CancellationToken ct)
     {
+        if (IsReplica)
+        {
+            await ReplicaOpenReportAsync(ct);
+            return;
+        }
         GuardHealthy();
         HandleDialogs();
         InvokeControl(Find("AssetAccountingMenu"));
@@ -134,6 +156,11 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task SetFiscalYearAsync(int fiscalYear, CancellationToken ct)
     {
+        if (IsReplica)
+        {
+            await ReplicaSetPeriodAsync(fiscalYear, ct);
+            return;
+        }
         GuardHealthy();
         HandleDialogs();
         var field = Find("FiscalYearField");
@@ -146,24 +173,38 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task SelectDepartmentAsync(string department, CancellationToken ct)
     {
+        if (IsReplica)
+        {
+            await ReplicaSetFachbereichAsync(department, ct);
+            return;
+        }
         GuardHealthy();
         HandleDialogs();
         await SetSelectorValueAsync("DepartmentField", department, ct);
     }
 
-    public Task StartEvaluationAsync(CancellationToken ct)
+    public async Task StartEvaluationAsync(CancellationToken ct)
     {
+        if (IsReplica)
+        {
+            await ReplicaExecuteAsync(ct);
+            return;
+        }
         GuardHealthy();
         HandleDialogs();
         TryCollapse(TryFind("ClientField"));
         TryCollapse(TryFind("DepartmentField"));
         InvokeControl(Find("ExecuteButton"));
         SessionStatus = WilkenSessionStatus.Busy;
-        return Task.CompletedTask;
     }
 
     public async Task WaitForReportReadyAsync(CancellationToken ct)
     {
+        if (IsReplica)
+        {
+            await ReplicaWaitForProgressAsync(ct);
+            return;
+        }
         var readyText = _options.Selectors.GetValueOrDefault("ReportReadyText", "");
         await WaitUntilUiAsync(() =>
         {
@@ -183,6 +224,11 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task OpenSpoolAsync(CancellationToken ct)
     {
+        if (IsReplica)
+        {
+            await ReplicaOpenSpoolAsync(ct);
+            return;
+        }
         GuardHealthy();
         HandleDialogs();
         InvokeControl(Find("SpoolMenu"));
@@ -193,6 +239,9 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task<string> ExportAsync(ExportJob job, CancellationToken ct)
     {
+        if (IsReplica)
+            return await ReplicaExportAsync(job, ct);
+
         GuardHealthy();
         HandleDialogs();
 
@@ -466,9 +515,13 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         {
             FileName = _options.ExecutablePath,
             UseShellExecute = true,
-            WindowStyle = ProcessWindowStyle.Minimized
+            WindowStyle = IsReplica ? ProcessWindowStyle.Normal : ProcessWindowStyle.Minimized
         });
-        _logger.LogInformation("Launched Wilken CS/2 ({Path}). Starts minimized; restore from the taskbar to watch. Automation uses UIA only (no mouse).", _options.ExecutablePath);
+        _logger.LogInformation(
+            IsReplica
+                ? "Launched Wilken CS/2 replica ({Path}). Window stays visible; automation uses UIA only (no mouse)."
+                : "Launched Wilken CS/2 ({Path}). Starts minimized; restore from the taskbar to watch. Automation uses UIA only (no mouse).",
+            _options.ExecutablePath);
     }
 
     private async Task KillTrackedProcessAsync()

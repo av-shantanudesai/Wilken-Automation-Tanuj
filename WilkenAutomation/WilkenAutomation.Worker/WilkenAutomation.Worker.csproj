@@ -20,12 +20,17 @@
     <ProjectReference Include="..\WilkenAutomation.TestDesktop\WilkenAutomation.TestDesktop.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+    <ProjectReference Include="..\..\WilkenCs2ReplicaMock\src\WilkenCs2ReplicaMock\WilkenCs2ReplicaMock.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
 
-  <Target Name="CopyTestDesktop" AfterTargets="Build">
+  <Target Name="CopyDesktopApps" AfterTargets="Build">
     <ItemGroup>
       <_TestDesktopOut Include="..\WilkenAutomation.TestDesktop\bin\$(Configuration)\net8.0-windows\**\*.*" />
+      <_ReplicaOut Include="..\..\WilkenCs2ReplicaMock\src\WilkenCs2ReplicaMock\bin\$(Configuration)\net8.0-windows\**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(_TestDesktopOut)" DestinationFolder="$(OutputPath)%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_ReplicaOut)" DestinationFolder="$(OutputPath)Replica\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>
