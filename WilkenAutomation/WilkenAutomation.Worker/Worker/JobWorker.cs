@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json;
 using WilkenAutomation.Application.Configuration;
 using WilkenAutomation.Application.Enums;
@@ -20,6 +21,8 @@ public class JobWorker : BackgroundService
     private readonly WorkerSettings _settings;
     private readonly ILogger<JobWorker> _logger;
     private readonly HashSet<string> _verifiedRuns = new();
+    private readonly Queue<string> _verifiedOrder = new();
+    private DateTime _lastIdleHealthUtc = DateTime.MinValue;
 
     public JobWorker(
         IServiceScopeFactory scopeFactory,
@@ -59,6 +62,7 @@ public class JobWorker : BackgroundService
                 {
                     _state.SetStatus(WorkerStatus.Idle);
                     _state.SetCurrentJob(null);
+                    await RunIdleHealthAsync(stoppingToken);
                     await Task.Delay(_settings.PollIntervalMs, stoppingToken);
                 }
             }
@@ -106,8 +110,8 @@ public class JobWorker : BackgroundService
         var run = await runs.GetActiveRunAsync(ct);
         if (run is null) return false;
 
-        // Re-verify previously successful exports once per run per worker session.
-        if (_verifiedRuns.Add(run.RunId))
+        // Re-verify previously successful exports once per run (bounded cache).
+        if (RememberVerifiedRun(run.RunId))
         {
             var recovery = scope.ServiceProvider.GetRequiredService<StartupRecoveryService>();
             var requeued = await recovery.VerifyCompletedJobsAsync(run.RunId, ct);
@@ -137,7 +141,9 @@ public class JobWorker : BackgroundService
             return Task.CompletedTask;
         };
 
-        var result = await executor.ExecuteAsync(job, config, ct);
+        using var jobTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        jobTimeout.CancelAfter(TimeSpan.FromMinutes(Math.Clamp(_settings.HungJobTimeoutMinutes, 15, 180)));
+        var result = await executor.ExecuteAsync(job, config, jobTimeout.Token);
         _state.SetSession(_wilken.SessionStatus);
 
         if (result.FinalStatus.IsSuccess())
@@ -167,20 +173,75 @@ public class JobWorker : BackgroundService
         _state.SetCurrentJob(null);
         return true;
     }
+
+    private bool RememberVerifiedRun(string runId)
+    {
+        if (!_verifiedRuns.Add(runId)) return false;
+        _verifiedOrder.Enqueue(runId);
+        var cap = Math.Clamp(_settings.VerifiedRunCacheSize, 8, 256);
+        while (_verifiedOrder.Count > cap)
+            _verifiedRuns.Remove(_verifiedOrder.Dequeue());
+        return true;
+    }
+
+    private async Task RunIdleHealthAsync(CancellationToken ct)
+    {
+        if (DateTime.UtcNow - _lastIdleHealthUtc < TimeSpan.FromMinutes(5))
+            return;
+        _lastIdleHealthUtc = DateTime.UtcNow;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var recovery = scope.ServiceProvider.GetRequiredService<StartupRecoveryService>();
+            var hungAfter = DateTime.UtcNow.AddMinutes(-Math.Clamp(_settings.HungJobTimeoutMinutes, 15, 180));
+            var recovered = await recovery.RecoverStaleRunningJobsAsync(ct, hungAfter);
+            if (recovered > 0)
+                _logger.LogWarning("Hung-job recovery: {Count} RUNNING job(s) re-queued.", recovered);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Hung-job recovery failed.");
+        }
+
+        try
+        {
+            if (!await _wilken.IsSessionHealthyAsync(ct)
+                && _wilken.SessionStatus is not WilkenSessionStatus.NotRunning)
+            {
+                _logger.LogWarning("Wilken session unhealthy while idle - recovering.");
+                await _wilken.RecoverSessionAsync(ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Idle session recovery failed.");
+        }
+    }
 }
 
-/// <summary>Publishes the worker heartbeat (status + current runtime) through SignalR.</summary>
+/// <summary>Publishes the worker heartbeat (status + current runtime) through SignalR and HTTP.</summary>
 public class HeartbeatService : BackgroundService
 {
     private readonly WorkerState _state;
     private readonly IRealtimeNotifier _notifier;
     private readonly WorkerSettings _settings;
+    private readonly JwtTokenService _tokens;
+    private readonly ILogger<HeartbeatService> _logger;
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
-    public HeartbeatService(WorkerState state, IRealtimeNotifier notifier, WorkerSettings settings)
+    public HeartbeatService(
+        WorkerState state,
+        IRealtimeNotifier notifier,
+        WorkerSettings settings,
+        JwtTokenService tokens,
+        ILogger<HeartbeatService> logger)
     {
         _state = state;
         _notifier = notifier;
         _settings = settings;
+        _tokens = tokens;
+        _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -188,7 +249,33 @@ public class HeartbeatService : BackgroundService
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_settings.HeartbeatIntervalMs));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            await _notifier.PublishWorkerStatusAsync(_state.Snapshot(), stoppingToken, _state.OwnerUserId);
+            var snapshot = _state.Snapshot();
+            await _notifier.PublishWorkerStatusAsync(snapshot, stoppingToken, _state.OwnerUserId);
+            await PostHeartbeatAsync(snapshot, stoppingToken);
         }
+    }
+
+    private async Task PostHeartbeatAsync(WorkerStatusDto snapshot, CancellationToken ct)
+    {
+        try
+        {
+            var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/api/worker/heartbeat";
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _tokens.CreateWorkerToken());
+            request.Content = JsonContent.Create(snapshot);
+            using var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+                _logger.LogDebug("HTTP heartbeat returned {Status}.", (int)response.StatusCode);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug("HTTP heartbeat failed: {Message}", ex.Message);
+        }
+    }
+
+    public override void Dispose()
+    {
+        _http.Dispose();
+        base.Dispose();
     }
 }

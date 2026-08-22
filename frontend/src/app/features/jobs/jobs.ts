@@ -32,19 +32,29 @@ export class JobsPage implements OnDestroy {
   yearFilter = signal<number | null>(null);
 
   private timer: ReturnType<typeof setInterval>;
+  private pollTicks = 0;
+  private unsubscribeRealtime: (() => void) | null = null;
 
   constructor() {
     this.load();
-    this.timer = setInterval(() => this.load(), 3000);
+    this.timer = setInterval(() => this.poll(), 3000);
     if (this.api.mode() === 'backend') {
       this.realtime.connect();
       const runId = this.api.selectedRunId();
       if (runId) void this.realtime.subscribeToRun(runId);
+      this.unsubscribeRealtime = this.realtime.subscribe(() => void this.load());
     }
+  }
+
+  private poll(): void {
+    this.pollTicks++;
+    const live = this.api.mode() === 'backend' && this.realtime.connected();
+    if (!live || this.pollTicks % 5 === 0) void this.load();
   }
 
   ngOnDestroy(): void {
     clearInterval(this.timer);
+    this.unsubscribeRealtime?.();
   }
 
   async load(): Promise<void> {

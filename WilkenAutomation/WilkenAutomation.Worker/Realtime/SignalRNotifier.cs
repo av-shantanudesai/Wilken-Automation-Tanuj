@@ -24,10 +24,7 @@ public class SignalRNotifier : IRealtimeNotifier, IAsyncDisposable
             {
                 options.AccessTokenProvider = () => Task.FromResult<string?>(tokens.CreateWorkerToken());
             })
-            .WithAutomaticReconnect(new[]
-            {
-                TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)
-            })
+            .WithAutomaticReconnect(new ForeverRetryPolicy())
             .Build();
     }
 
@@ -64,10 +61,9 @@ public class SignalRNotifier : IRealtimeNotifier, IAsyncDisposable
     {
         await EnsureConnectedAsync(ct);
         if (_connection.State != HubConnectionState.Connected) return;
-        if (audienceUserId is not > 0) return;
         try
         {
-            await _connection.InvokeAsync("PublishWorkerStatus", status, audienceUserId.Value, ct);
+            await _connection.InvokeAsync("PublishWorkerStatus", status, audienceUserId ?? 0, ct);
         }
         catch (Exception ex)
         {
@@ -76,4 +72,14 @@ public class SignalRNotifier : IRealtimeNotifier, IAsyncDisposable
     }
 
     public ValueTask DisposeAsync() => _connection.DisposeAsync();
+}
+
+/// <summary>Never give up reconnecting to the API hub during a long unattended run.</summary>
+internal sealed class ForeverRetryPolicy : IRetryPolicy
+{
+    public TimeSpan? NextRetryDelay(RetryContext retryContext)
+    {
+        var seconds = Math.Min(30, Math.Pow(2, Math.Min(retryContext.PreviousRetryCount, 5)));
+        return TimeSpan.FromSeconds(seconds);
+    }
 }

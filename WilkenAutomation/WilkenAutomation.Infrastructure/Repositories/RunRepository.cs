@@ -45,8 +45,10 @@ public class RunRepository : IRunRepository
 
     public Task<List<AutomationRun>> ListAsync(CancellationToken ct, long userId) =>
         _db.AutomationRuns
+            .AsNoTracking()
             .Where(r => r.UserId == userId)
             .OrderByDescending(r => r.CreatedAt)
+            .Take(100)
             .ToListAsync(ct);
 
     public Task<AutomationRun?> GetActiveRunAsync(CancellationToken ct) =>

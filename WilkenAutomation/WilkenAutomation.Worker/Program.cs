@@ -54,6 +54,7 @@ if (workerSettings.AutomationMode == AutomationMode.DesktopTest)
 builder.Services.AddSingleton(wilkenOptions);
 builder.Services.AddSingleton(exportSettings);
 builder.Services.AddSingleton(workerSettings);
+builder.Services.AddSingleton(builder.Configuration.GetSection(MaintenanceSettings.Section).Get<MaintenanceSettings>() ?? new MaintenanceSettings());
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
 JwtTokenService.EnsureProductionKey(jwtOptions, builder.Environment.EnvironmentName);
@@ -87,6 +88,7 @@ builder.Services.AddScoped<JobExecutor>();
 
 builder.Services.AddHostedService<JobWorker>();
 builder.Services.AddHostedService<HeartbeatService>();
+builder.Services.AddHostedService<MaintenanceHostedService>();
 
 Console.WriteLine();
 Console.WriteLine("============================================================");

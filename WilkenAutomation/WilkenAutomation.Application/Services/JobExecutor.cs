@@ -193,8 +193,15 @@ public class JobExecutor
         }
         catch (OperationCanceledException)
         {
-            // Shutdown: leave the job RUNNING; restart recovery re-queues it safely.
-            throw;
+            // Timeout or host shutdown: persist RETRY with a non-cancelled token so
+            // the row is never left RUNNING for the rest of a week-long process.
+            return await HandleFailureAsync(
+                job,
+                attempt,
+                config,
+                new WaitTimeoutException("Job attempt cancelled or exceeded the hung-job timeout."),
+                userId,
+                CancellationToken.None);
         }
         catch (Exception ex)
         {

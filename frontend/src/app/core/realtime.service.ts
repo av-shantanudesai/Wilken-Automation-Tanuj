@@ -47,7 +47,10 @@ export class RealtimeService {
         accessTokenFactory: () => this.auth.token() ?? '',
         withCredentials: true,
       })
-      .withAutomaticReconnect()
+      .withAutomaticReconnect({
+        nextRetryDelayInMilliseconds: (retry) =>
+          Math.min(30_000, 1000 * 2 ** Math.min(retry.previousRetryCount, 5)),
+      })
       .build();
 
     for (const event of HUB_EVENTS) {
@@ -60,15 +63,33 @@ export class RealtimeService {
       this.connected.set(true);
       void this.resubscribe();
     });
-    this.connection.onclose(() => this.connected.set(false));
+    this.connection.onclose(() => {
+      this.connected.set(false);
+      this.scheduleReconnect();
+    });
 
+    this.startConnection();
+  }
+
+  private startConnection(): void {
     this.connection
-      .start()
+      ?.start()
       .then(() => {
         this.connected.set(true);
         void this.resubscribe();
       })
-      .catch(() => this.connected.set(false));
+      .catch(() => {
+        this.connected.set(false);
+        this.scheduleReconnect();
+      });
+  }
+
+  private scheduleReconnect(): void {
+    window.setTimeout(() => {
+      if (this.connection && this.connection.state === HubConnectionState.Disconnected) {
+        this.startConnection();
+      }
+    }, 5_000);
   }
 
   async subscribeToRun(runId: string | null): Promise<void> {

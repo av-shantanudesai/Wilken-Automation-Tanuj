@@ -66,10 +66,62 @@ public class RestartRecoveryTests : IDisposable
         var recovered = await _ctx.Recovery().RecoverStaleRunningJobsAsync(CancellationToken.None);
 
         Assert.Equal(1, recovered);
-        Assert.Equal(JobStatus.Retry, job.Status);
-        Assert.Equal("INTERRUPTED", job.ErrorCode);
+        var saved = await _ctx.Jobs.GetByJobIdAsync(job.JobId, CancellationToken.None);
+        Assert.Equal(JobStatus.Retry, saved!.Status);
+        Assert.Equal("INTERRUPTED", saved.ErrorCode);
         var attempt = (await _ctx.Jobs.GetAttemptsAsync(job.JobId, CancellationToken.None)).Single();
         Assert.Equal("Interrupted", attempt.Status);
+    }
+
+    [Fact]
+    public async Task HungRunningJob_OlderThanCutoff_IsRequeued_RecentJobIsLeftAlone()
+    {
+        var generator = _ctx.Generator();
+        var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
+        var jobs = await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None);
+
+        var hung = jobs[0];
+        hung.Status = JobStatus.Running;
+        hung.StartTime = DateTime.UtcNow.AddHours(-2);
+        hung.UpdatedAt = hung.StartTime.Value;
+        await _ctx.Jobs.UpdateAsync(hung, CancellationToken.None);
+        await _ctx.Jobs.AddAttemptAsync(new JobAttempt
+        {
+            JobId = hung.JobId, AttemptNumber = 1, StartTime = hung.StartTime.Value,
+            Status = "Running", CreatedAt = DateTime.UtcNow
+        }, CancellationToken.None);
+
+        var live = jobs[1];
+        live.Status = JobStatus.Running;
+        live.StartTime = DateTime.UtcNow.AddMinutes(-2);
+        live.UpdatedAt = live.StartTime.Value;
+        await _ctx.Jobs.UpdateAsync(live, CancellationToken.None);
+
+        var recovered = await _ctx.Recovery().RecoverStaleRunningJobsAsync(
+            CancellationToken.None, DateTime.UtcNow.AddMinutes(-45), skipJobId: live.JobId);
+
+        Assert.Equal(1, recovered);
+        Assert.Equal(JobStatus.Retry, (await _ctx.Jobs.GetByJobIdAsync(hung.JobId, CancellationToken.None))!.Status);
+        Assert.Equal(JobStatus.Running, (await _ctx.Jobs.GetByJobIdAsync(live.JobId, CancellationToken.None))!.Status);
+    }
+
+    [Fact]
+    public async Task SkipJobId_PreventsRecoveringTheJobCurrentlyExecuting()
+    {
+        var generator = _ctx.Generator();
+        var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
+        var job = (await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None)).First();
+        job.Status = JobStatus.Running;
+        job.StartTime = DateTime.UtcNow.AddHours(-3);
+        await _ctx.Jobs.UpdateAsync(job, CancellationToken.None);
+
+        var recovered = await _ctx.Recovery().RecoverStaleRunningJobsAsync(
+            CancellationToken.None, DateTime.UtcNow.AddMinutes(-45), skipJobId: job.JobId);
+
+        Assert.Equal(0, recovered);
+        Assert.Equal(JobStatus.Running, (await _ctx.Jobs.GetByJobIdAsync(job.JobId, CancellationToken.None))!.Status);
     }
 
     [Fact]
@@ -97,8 +149,8 @@ public class RestartRecoveryTests : IDisposable
         var requeued = await _ctx.Recovery().VerifyCompletedJobsAsync(run.RunId, CancellationToken.None);
 
         Assert.Equal(1, requeued);
-        Assert.Equal(JobStatus.Pending, missing.Status);
-        Assert.Equal(JobStatus.SuccessWithData, good.Status);
+        Assert.Equal(JobStatus.Pending, (await _ctx.Jobs.GetByJobIdAsync(missing.JobId, CancellationToken.None))!.Status);
+        Assert.Equal(JobStatus.SuccessWithData, (await _ctx.Jobs.GetByJobIdAsync(good.JobId, CancellationToken.None))!.Status);
     }
 
     [Fact]
@@ -120,7 +172,7 @@ public class RestartRecoveryTests : IDisposable
 
         var requeued = await _ctx.Recovery().VerifyCompletedJobsAsync(run.RunId, CancellationToken.None);
         Assert.Equal(1, requeued);
-        Assert.Equal(JobStatus.Pending, job.Status);
+        Assert.Equal(JobStatus.Pending, (await _ctx.Jobs.GetByJobIdAsync(job.JobId, CancellationToken.None))!.Status);
     }
 
     public void Dispose() => _ctx.Dispose();
@@ -208,6 +260,23 @@ public class MockLifecycleTests : IDisposable
         Assert.True(result.SessionLost);
         Assert.Equal(JobStatus.Retry, result.FinalStatus);
         Assert.Equal("TIMEOUT", job!.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelledAttempt_IsPersistedAsRetry_NotLeftRunning()
+    {
+        var generator = _ctx.Generator();
+        var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
+
+        var job = await _ctx.Jobs.GetNextEligibleAsync(run.RunId, CancellationToken.None);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+
+        var result = await _ctx.Executor(new HungAutomation()).ExecuteAsync(job!, config, cts.Token);
+
+        Assert.Equal(JobStatus.Retry, result.FinalStatus);
+        Assert.Equal("TIMEOUT", job!.ErrorCode);
+        Assert.NotEqual(JobStatus.Running, job.Status);
     }
 
     public void Dispose() => _ctx.Dispose();

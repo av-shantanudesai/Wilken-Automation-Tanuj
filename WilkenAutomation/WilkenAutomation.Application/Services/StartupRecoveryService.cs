@@ -31,9 +31,17 @@ public class StartupRecoveryService
         _logger = logger;
     }
 
-    public async Task<int> RecoverStaleRunningJobsAsync(CancellationToken ct)
+    public async Task<int> RecoverStaleRunningJobsAsync(
+        CancellationToken ct,
+        DateTime? startedBeforeUtc = null,
+        string? skipJobId = null)
     {
         var stale = await _jobs.GetStaleRunningAsync(ct);
+        if (startedBeforeUtc is not null)
+            stale = stale.Where(j => (j.StartTime ?? j.UpdatedAt) < startedBeforeUtc.Value).ToList();
+        if (!string.IsNullOrEmpty(skipJobId))
+            stale = stale.Where(j => j.JobId != skipJobId).ToList();
+
         foreach (var job in stale)
         {
             var attempts = await _jobs.GetAttemptsAsync(job.JobId, ct);
@@ -66,10 +74,12 @@ public class StartupRecoveryService
                 Timestamp = DateTime.UtcNow,
                 Level = "WARN",
                 Action = "RestartRecovery",
-                Message = "Stale RUNNING job detected after restart -> RETRY."
+                Message = startedBeforeUtc is null
+                    ? "Stale RUNNING job detected after restart -> RETRY."
+                    : "RUNNING job exceeded hung timeout -> RETRY."
             }, ct);
 
-            _logger.LogWarning("Restart recovery: stale RUNNING job {JobId} moved to RETRY.", job.JobId);
+            _logger.LogWarning("Recovery: stale RUNNING job {JobId} moved to RETRY.", job.JobId);
         }
         return stale.Count;
     }

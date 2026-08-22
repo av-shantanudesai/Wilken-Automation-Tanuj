@@ -11,7 +11,7 @@ public class WorkerStatusRegistry
 {
     private readonly object _lock = new();
     private WorkerStatusDto? _latest;
-    private static readonly TimeSpan Staleness = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan Staleness = TimeSpan.FromSeconds(45);
 
     public void Update(WorkerStatusDto status)
     {

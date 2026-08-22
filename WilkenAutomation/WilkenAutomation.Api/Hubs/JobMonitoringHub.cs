@@ -76,10 +76,10 @@ public class JobMonitoringHub : Hub
     [Authorize(Roles = AuthRoles.Worker)]
     public async Task PublishWorkerStatus(WorkerStatusDto status, long userId)
     {
-        if (status is null || userId <= 0) return;
+        if (status is null) return;
         _registry.Update(status);
 
-        if (string.IsNullOrWhiteSpace(status.CurrentRunId))
+        if (userId <= 0 || string.IsNullOrWhiteSpace(status.CurrentRunId))
             return;
 
         var run = await _runs.GetByRunIdAsync(status.CurrentRunId, Context.ConnectionAborted);

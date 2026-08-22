@@ -1,4 +1,4 @@
-﻿<Window x:Class="WilkenAutomation.TestDesktop.MainWindow"
+<Window x:Class="WilkenAutomation.TestDesktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Wilken CS/2 Test Desktop"

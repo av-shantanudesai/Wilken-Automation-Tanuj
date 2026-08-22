@@ -28,8 +28,8 @@ public static class InfrastructureRegistration
                 options.UseSqlite(connectionString);
             else
                 options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString),
-                    mysql => mysql.EnableRetryOnFailure(5));
-        });
+                    mysql => mysql.EnableRetryOnFailure(5).CommandTimeout(60));
+        }, contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
 
         services.AddScoped<IRunRepository, RunRepository>();
         services.AddScoped<IJobRepository, JobRepository>();

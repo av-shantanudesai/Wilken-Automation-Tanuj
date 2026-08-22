@@ -4,6 +4,7 @@ using WilkenAutomation.Api.Auth;
 using WilkenAutomation.Api.Services;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Models;
+using WilkenAutomation.Application.Services;
 
 namespace WilkenAutomation.Api.Controllers;
 
@@ -19,6 +20,16 @@ public class WorkerController : ControllerBase
     {
         _registry = registry;
         _runs = runs;
+    }
+
+    /// <summary>HTTP fallback so liveness does not depend only on SignalR.</summary>
+    [Authorize(Roles = AuthRoles.Worker)]
+    [HttpPost("heartbeat")]
+    public IActionResult Heartbeat([FromBody] WorkerStatusDto status)
+    {
+        if (status is null) return BadRequest();
+        _registry.Update(status);
+        return NoContent();
     }
 
     [HttpGet("status")]

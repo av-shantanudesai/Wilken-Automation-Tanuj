@@ -126,6 +126,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddSingleton(builder.Configuration.GetSection(RunDefaults.Section).Get<RunDefaults>() ?? new RunDefaults());
+builder.Services.AddSingleton(builder.Configuration.GetSection(ExportSettings.Section).Get<ExportSettings>() ?? new ExportSettings());
 builder.Services.AddScoped<JobGeneratorService>();
 builder.Services.AddScoped<RunStatisticsService>();
 builder.Services.AddSingleton<WorkerStatusRegistry>();

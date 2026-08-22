@@ -25,16 +25,23 @@ export class DashboardPage implements OnDestroy {
   private timer: ReturnType<typeof setInterval>;
   private refreshQueued: ReturnType<typeof setTimeout> | null = null;
   private unsubscribeRealtime: (() => void) | null = null;
+  private pollTicks = 0;
 
   constructor() {
     this.refresh();
-    // Polling fallback; SignalR events trigger immediate refreshes in backend mode.
-    this.timer = setInterval(() => this.refresh(), 1500);
+    this.timer = setInterval(() => this.poll(), 1500);
 
     if (this.api.mode() === 'backend') {
       this.realtime.connect();
       this.unsubscribeRealtime = this.realtime.subscribe(() => this.queueRefresh());
     }
+  }
+
+  /** Fast poll only when SignalR is down; otherwise rely on events plus a slow safety net. */
+  private poll(): void {
+    this.pollTicks++;
+    const live = this.api.mode() === 'backend' && this.realtime.connected();
+    if (!live || this.pollTicks % 20 === 0) this.refresh();
   }
 
   ngOnDestroy(): void {

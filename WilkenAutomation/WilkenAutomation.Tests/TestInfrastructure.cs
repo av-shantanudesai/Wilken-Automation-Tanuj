@@ -139,6 +139,25 @@ public class TimeoutUnhealthyAutomation : IWilkenAutomationService
     public Task RecoverSessionAsync(CancellationToken ct) => Task.CompletedTask;
 }
 
+/// <summary>Blocks until cancelled so a cancelled attempt is persisted instead of staying RUNNING.</summary>
+public class HungAutomation : IWilkenAutomationService
+{
+    public WilkenSessionStatus SessionStatus => WilkenSessionStatus.Ready;
+
+    public Task BeginJobAsync(ExportJob job, RunConfig config, CancellationToken ct) => Task.CompletedTask;
+    public Task EnsureSessionAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task SelectClientAsync(string client, CancellationToken ct) => Task.Delay(Timeout.Infinite, ct);
+    public Task OpenAssetAccountingAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task SetFiscalYearAsync(int fiscalYear, CancellationToken ct) => Task.CompletedTask;
+    public Task SelectDepartmentAsync(string department, CancellationToken ct) => Task.CompletedTask;
+    public Task StartEvaluationAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task WaitForReportReadyAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task OpenSpoolAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task<string> ExportAsync(ExportJob job, CancellationToken ct) => throw new NotSupportedException();
+    public Task<bool> IsSessionHealthyAsync(CancellationToken ct) => Task.FromResult(true);
+    public Task RecoverSessionAsync(CancellationToken ct) => Task.CompletedTask;
+}
+
 public static class TestData
 {
     public static CreateRunRequestDto SmallRunRequest(int clients = 2, int years = 2) => new()

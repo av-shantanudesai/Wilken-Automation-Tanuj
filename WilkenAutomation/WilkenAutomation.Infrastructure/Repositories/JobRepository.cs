@@ -47,7 +47,7 @@ public class JobRepository : IJobRepository
     }
 
     public Task<List<ExportJob>> GetAllForRunAsync(string runId, CancellationToken ct) =>
-        _db.ExportJobs.Where(j => j.RunId == runId).OrderBy(j => j.OrderIndex).ToListAsync(ct);
+        _db.ExportJobs.AsNoTracking().Where(j => j.RunId == runId).OrderBy(j => j.OrderIndex).ToListAsync(ct);
 
     public Task<ExportJob?> GetNextEligibleAsync(string runId, CancellationToken ct) =>
         _db.ExportJobs
@@ -88,7 +88,11 @@ public class JobRepository : IJobRepository
 
     public async Task UpdateAsync(ExportJob job, CancellationToken ct)
     {
-        _db.ExportJobs.Update(job);
+        var tracked = _db.ExportJobs.Local.FirstOrDefault(e => e.Id == job.Id);
+        if (tracked is not null && !ReferenceEquals(tracked, job))
+            _db.Entry(tracked).CurrentValues.SetValues(job);
+        else if (tracked is null)
+            _db.ExportJobs.Update(job);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -111,7 +115,11 @@ public class JobRepository : IJobRepository
 
     public async Task UpdateAttemptAsync(JobAttempt attempt, CancellationToken ct)
     {
-        _db.JobAttempts.Update(attempt);
+        var tracked = _db.JobAttempts.Local.FirstOrDefault(e => e.Id == attempt.Id);
+        if (tracked is not null && !ReferenceEquals(tracked, attempt))
+            _db.Entry(tracked).CurrentValues.SetValues(attempt);
+        else if (tracked is null)
+            _db.JobAttempts.Update(attempt);
         await _db.SaveChangesAsync(ct);
     }
 

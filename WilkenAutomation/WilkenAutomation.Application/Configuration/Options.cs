@@ -45,6 +45,18 @@ public class WorkerSettings
     public int PollIntervalMs { get; set; } = 1000;
     public int HeartbeatIntervalMs { get; set; } = 2000;
     public string ApiBaseUrl { get; set; } = "http://localhost:5210";
+    /// <summary>Re-queue RUNNING jobs older than this. Must exceed report+export timeouts.</summary>
+    public int HungJobTimeoutMinutes { get; set; } = 45;
+    public int MaintenanceIntervalMinutes { get; set; } = 30;
+    public int VerifiedRunCacheSize { get; set; } = 32;
+}
+
+public class MaintenanceSettings
+{
+    public const string Section = "Maintenance";
+
+    /// <summary>How often the worker checks for hung RUNNING jobs. Audit rows and files are never deleted.</summary>
+    public int IntervalMinutes { get; set; } = 30;
 }
 
 public class JwtOptions
