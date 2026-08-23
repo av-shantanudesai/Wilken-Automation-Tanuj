@@ -1044,10 +1044,21 @@ public partial class MainWindow : Window
         tabHeader.Child = new TextBlock { Text = "Allgemein", FontWeight = FontWeights.SemiBold, Margin = new Thickness(8,4,0,0) };
         Grid.SetRow(tabHeader,0); outer.Children.Add(tabHeader);
 
-        var dg = new DataGrid { ItemsSource = rows, AutoGenerateColumns = false, IsReadOnly = true, Background = Brushes.White, CanUserAddRows = false, SelectionMode = DataGridSelectionMode.Single };
+        var dg = new DataGrid
+        {
+            ItemsSource = rows, AutoGenerateColumns = false, IsReadOnly = true, Background = Brushes.White,
+            CanUserAddRows = false, SelectionMode = DataGridSelectionMode.Single,
+            EnableRowVirtualization = false, EnableColumnVirtualization = false
+        };
+        VirtualizingPanel.SetIsVirtualizing(dg, false);
         AutomationId(dg, "ProcessManager_Grid");
         AddProcessCol(dg,"Mandant","Mandant",65); AddProcessCol(dg,"Werk","Werk",50); AddProcessCol(dg,"Programm","Programm",80); AddProcessCol(dg,"Prozess","Prozess",65); AddProcessCol(dg,"Bezeichnung","Bezeichnung",340);
         AddProcessCol(dg,"Status","Status",75); AddProcessCol(dg,"Zustand","Zustand",70); AddProcessCol(dg,"Prozess","ProzessCode",70); AddProcessCol(dg,"Letztes Laufdatum","LetztesLaufdatum",120); AddProcessCol(dg,"Nächstes Laufdatum","NaechstesLaufdatum",130); AddProcessCol(dg,"Rhythmus","Rhythmus",95);
+        dg.LoadingRow += (_, e) =>
+        {
+            if (e.Row.Item is not ProcessRow p) return;
+            AutomationId(e.Row, $"ProcessRow_{p.Programm}_{p.Prozess}");
+        };
         dg.MouseDoubleClick += (_, _) => OpenSelectedProcess(dg.SelectedItem as ProcessRow);
         dg.KeyDown += (_, e) => { if (e.Key == Key.Enter) OpenSelectedProcess(dg.SelectedItem as ProcessRow); };
         Grid.SetRow(dg, 1); outer.Children.Add(dg);
@@ -1055,6 +1066,10 @@ public partial class MainWindow : Window
         var bottom = Group("Auswahl"); bottom.Margin = new Thickness(0, 15, 0, 0);
         var g = new Grid(); g.ColumnDefinitions.Add(new ColumnDefinition()); g.ColumnDefinitions.Add(new ColumnDefinition());
         var l = new StackPanel(); l.Children.Add(Row("Prozess", "", "ProcessManager_Filter")); l.Children.Add(Check("Alle Mandanten anzeigen", false, "ProcessManager_AllClients"));
+        var openSelected = new Button { Content = "Prozess öffnen", Width = 160, Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        AutomationId(openSelected, "ProcessManager_OpenSelected");
+        openSelected.Click += (_, _) => OpenSelectedProcess(dg.SelectedItem as ProcessRow);
+        l.Children.Add(openSelected);
         var r = new StackPanel(); r.Children.Add(Row("Anzeige", "Alle Prozesse")); r.Children.Add(Row("Status ändern", "Keine"));
         Grid.SetColumn(l,0); Grid.SetColumn(r,1); g.Children.Add(l); g.Children.Add(r); bottom.Content = g; Grid.SetRow(bottom,2); outer.Children.Add(bottom);
         MainContent.Content = outer;
@@ -1129,11 +1144,11 @@ public partial class MainWindow : Window
             $"/data/wilken/as/wlkp/cs2work/spool/CT{stamp}D.SPL", dataPage);
         SortSpoolRows();
         foreach (var line in _spool) line.IsCurrentRun = false;
-        var newestPrt = _spool
-            .Where(s => !s.IsDescriptionLine && s.Listenname == protocolList && s.Erweiterung == "PRT")
+        var newestData = _spool
+            .Where(s => !s.IsDescriptionLine && s.Listenname == dataList && s.Erweiterung == dataExtension)
             .OrderByDescending(s => ParseSpoolDateTime(s.Erstelldatum, s.Uhrzeit))
             .FirstOrDefault();
-        if (newestPrt is not null) newestPrt.IsCurrentRun = true;
+        if (newestData is not null) newestData.IsCurrentRun = true;
     }
 
     private void SortSpoolRows()

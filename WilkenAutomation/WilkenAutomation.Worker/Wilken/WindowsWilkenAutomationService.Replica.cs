@@ -53,6 +53,21 @@ public partial class WindowsWilkenAutomationService
         MinMatches = 3
     };
 
+    private static readonly ScreenDefinition ProcessManagerScreen = new()
+    {
+        Name = "PROCESS_MANAGER",
+        Anchors =
+        {
+            ScreenAnchor.ById("ProcessManager_Grid"),
+            ScreenAnchor.ById("ProcessManager_OpenSelected"),
+            ScreenAnchor.ByText("Prozesse verwalten")
+        },
+        MinMatches = 2
+    };
+
+    private bool IsZugangDefinition =>
+        string.Equals(ReplicaDefinition.Name, "Zugangsliste", StringComparison.OrdinalIgnoreCase);
+
     private string ReadTitleAndStatusText()
     {
         var parts = new List<string>(2);
@@ -99,20 +114,150 @@ public partial class WindowsWilkenAutomationService
             throw new WilkenAutomationException("VIEW_NOT_MAPPED",
                 $"Export '{definition.Name}' is a VIEW recipe. Run it in Mock mode until real Wilken view controls are inspected.");
         }
-        var navId = definition.ReplicaNavId ?? (definition.Name == "Anlagenspiegel" ? "Nav_Anlagenspiegel" : "Nav_Zugangsliste");
-        var expected = definition.ReplicaTitleContains ?? definition.DisplayName;
+        if (string.Equals(definition.Type, ExecutorTypes.Spool, StringComparison.OrdinalIgnoreCase))
+            await ReplicaOpenSavedProcessAsync(definition, ct);
+        else
+        {
+            var navId = definition.ReplicaNavId
+                ?? throw new WilkenAutomationException("VIEW_NOT_MAPPED",
+                    $"Export '{definition.Name}' has no replica navigation mapping.");
+            InvokeControl(FindByAutomationId(navId));
+            await WaitUntilUiAsync(
+                () => ScreenTitleContains(definition.ReplicaTitleContains ?? definition.DisplayName),
+                TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+                $"report screen '{definition.DisplayName}'", ct);
+        }
 
-        InvokeControl(FindByAutomationId(navId));
+        await ReplicaVerifyStaticFieldsAsync(definition, ct);
+    }
+
+    /// <summary>
+    /// Screenshots / reviewed workflow: always start at Prozesse verwalten,
+    /// select the saved process by program + number + name, then open it.
+    /// Never jump directly to Zugangsliste/Anlagenspiegel from Einzeldefinitionen.
+    /// </summary>
+    private async Task ReplicaOpenSavedProcessAsync(ExportDefinition definition, CancellationToken ct)
+    {
+        var (program, number, name) = ResolveSavedProcess(definition);
+
+        InvokeControl(FindByAutomationId("Nav_ProzesseVerwalten"));
         await WaitUntilUiAsync(
-            () => ScreenTitleContains(expected),
+            () => ScreenEngine.Matches(ProcessManagerScreen),
             TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            $"report screen '{expected}'", ct);
+            "Prozesse verwalten", ct);
+
+        var rowId = $"ProcessRow_{program}_{number}";
+
+        AutomationElement? row = null;
+        await WaitUntilUiAsync(() =>
+        {
+            row = TryFindByAutomationId(rowId) ?? FindProcessRow(program, number, name);
+            return row is not null;
+        }, TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+            $"process row {program}/{number} '{name}'", ct);
+
+        SelectRow(row!);
+        var open = TryFindByAutomationId("ProcessManager_OpenSelected");
+        if (open is not null)
+            InvokeControl(open);
+        else
+            throw new WilkenAutomationException("CONTROL_NOT_FOUND",
+                "Process manager is missing ProcessManager_OpenSelected; cannot open the saved process without a mouse double-click.");
+
+        var processField = definition.Name.Contains("Zugang", StringComparison.OrdinalIgnoreCase)
+            ? "Zugang_Prozess" : "Anlage_Prozess";
+        var nameField = definition.Name.Contains("Zugang", StringComparison.OrdinalIgnoreCase)
+            ? "Zugang_Bezeichnung" : "Anlage_Bezeichnung";
+        await WaitUntilUiAsync(
+            () => ScreenTitleContains(definition.ReplicaTitleContains ?? "Anlagenspiegel erstellen")
+                  && ControlShowsValue(TryFindByAutomationId(processField), number)
+                  && ControlShowsValue(TryFindByAutomationId(nameField), name),
+            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+            $"saved process {number} '{name}' loaded", ct);
+    }
+
+    private static (string Program, string Number, string Name) ResolveSavedProcess(ExportDefinition definition)
+    {
+        if (!string.IsNullOrWhiteSpace(definition.ReplicaProcessNumber))
+        {
+            return (
+                definition.ReplicaProcessProgram ?? "CAB015",
+                definition.ReplicaProcessNumber,
+                definition.ReplicaProcessName ?? definition.DisplayName);
+        }
+
+        return definition.Name switch
+        {
+            "Zugangsliste" => ("CAB024", "001", "Zugangsliste"),
+            "Anlagenspiegel" => ("CAB015", "001", "Anlagenspiegel nach Anlagen"),
+            _ => ("CAB015", "003", "Alle Anlagen nach Konten verdichtet")
+        };
+    }
+
+    private AutomationElement? FindProcessRow(string program, string number, string name)
+    {
+        var grid = TryFindByAutomationId("ProcessManager_Grid");
+        if (grid is null) return null;
+        try
+        {
+            var rows = grid.FindAllDescendants(cf => cf.ByClassName("DataGridRow"));
+            if (rows.Length == 0)
+                rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+            foreach (var row in rows)
+            {
+                var text = ReadSubtree(row);
+                if (text.Contains(program, StringComparison.OrdinalIgnoreCase)
+                    && text.Contains(number, StringComparison.OrdinalIgnoreCase)
+                    && text.Contains(name, StringComparison.OrdinalIgnoreCase))
+                    return row;
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private async Task ReplicaVerifyStaticFieldsAsync(ExportDefinition definition, CancellationToken ct)
+    {
+        if (string.Equals(definition.Name, "Zugangsliste", StringComparison.OrdinalIgnoreCase))
+        {
+            await VerifyValueAsync("Zugang_Prozess", "001", ct);
+            await VerifyValueAsync("Zugang_Bezeichnung", "Zugangsliste", ct);
+            await SetCheckAsync("Field_Aktiv", true, ct);
+            await SetCheckAsync("Field_AutoDeactivate", false, ct);
+            await SetCheckAsync("Field_Laufprotokoll", false, ct);
+            await SetSelectorOrIdAsync("Zugang_Art", "Bericht", ct);
+            await SetSelectorOrIdAsync("Zugang_Bericht", "NACH ANLAGEN", ct);
+            await SetSelectorOrIdAsync("Zugang_Wertart", "Ist", ct);
+            await SetSelectorOrIdAsync("Field_ErstellungArt", "Druckversion", ct);
+            await SetCheckAsync("Field_SumMainAsset", false, ct);
+            await SetCheckAsync("Zugang_Gegenkonto", false, ct);
+            await SetCheckAsync("Zugang_UmbuchungBilanzposition", true, ct);
+            await SetCheckAsync("Zugang_UmbuchungAnlage", true, ct);
+            return;
+        }
+
+        var isCondensed = string.Equals(definition.Name, "AlleAnlagenNachKontenVerdichtet", StringComparison.OrdinalIgnoreCase);
+        var process = isCondensed ? (definition.ReplicaProcessNumber ?? "003") : "001";
+        var bezeichnung = isCondensed ? "Alle Anlagen nach Konten verdichtet" : "Anlagenspiegel nach Anlagen";
+        await VerifyValueAsync("Anlage_Prozess", process, ct);
+        await VerifyValueAsync("Anlage_Bezeichnung", bezeichnung, ct);
+        await SetCheckAsync("Field_Aktiv", true, ct);
+        await SetCheckAsync("Field_AutoDeactivate", false, ct);
+        await SetCheckAsync("Field_Laufprotokoll", true, ct);
+        await SetSelectorOrIdAsync("Anlage_Art", "Kompletter Datenbestand", ct);
+        await SetSelectorOrIdAsync("Anlage_Wertart", "Ist", ct);
+        await SetSelectorOrIdAsync("Field_ErstellungArt", "Druckversion", ct);
+        await SetCheckAsync("Field_SumMainAsset", false, ct);
+        await SetCheckAsync("Anlage_Zugaenge", !isCondensed, ct);
+        await SetCheckAsync("Anlage_Abgaenge", !isCondensed, ct);
+        await SetCheckAsync("Anlage_Umbuchung", !isCondensed, ct);
+        await VerifyValueAsync("Field_Status", "OK", ct);
     }
 
     private async Task ReplicaSetPeriodAsync(int fiscalYear, CancellationToken ct)
     {
         GuardHealthy();
-        if (!string.Equals(ReplicaDefinition.Name, "Anlagenspiegel", StringComparison.OrdinalIgnoreCase))
+        if (IsZugangDefinition)
         {
             await SetIdValueAsync("Zugang_DateFrom", $"01.01.{fiscalYear}", ct);
             await SetIdValueAsync("Zugang_DateTo", $"31.12.{fiscalYear}", ct);
@@ -133,8 +278,7 @@ public partial class WindowsWilkenAutomationService
     private Task ReplicaSetFachbereichAsync(string department, CancellationToken ct)
     {
         GuardHealthy();
-        var id = string.Equals(ReplicaDefinition.Name, "Anlagenspiegel", StringComparison.OrdinalIgnoreCase)
-            ? "Anlage_Fachbereich" : "Zugang_Fachbereich";
+        var id = IsZugangDefinition ? "Zugang_Fachbereich" : "Anlage_Fachbereich";
         return SetSelectorOrIdAsync(id, department, ct);
     }
 
@@ -158,10 +302,22 @@ public partial class WindowsWilkenAutomationService
             TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
             "Fortschritt dialog", ct);
 
-        await WaitUntilUiAsync(
-            () => TryFindByAutomationId("ProgressDialog") is null,
-            TimeSpan.FromMinutes(_options.ReportTimeoutMinutes),
-            "Fortschritt dialog to close", ct);
+        // Phase changes (Anlagenselektion / Ermitteln der Werte / Der Anlagenspiegel wird erstellt)
+        // are normal. Never click Progress_Cancel. Wait until the dialog closes itself.
+        var lastMessage = "";
+        await WaitUntilUiAsync(() =>
+        {
+            var messageEl = TryFindByAutomationId("Progress_Message");
+            var message = messageEl is null ? "" : (messageEl.Name ?? ReadValue(messageEl));
+            if (!string.IsNullOrWhiteSpace(message) && !string.Equals(message, lastMessage, StringComparison.Ordinal))
+            {
+                lastMessage = message;
+                _logger.LogInformation("Fortschritt: {Message}", message);
+            }
+            return TryFindByAutomationId("ProgressDialog") is null;
+        },
+        TimeSpan.FromMinutes(_options.ReportTimeoutMinutes),
+        "Fortschritt dialog to close", ct);
 
         SessionStatus = WilkenSessionStatus.Ready;
     }
@@ -184,31 +340,33 @@ public partial class WindowsWilkenAutomationService
 
     private async Task ReplicaSelectGeneratedPrtRowAsync(CancellationToken ct)
     {
-        var selectCurrent = TryFindByAutomationId("Spool_SelectCurrentPrt");
-        if (selectCurrent is not null)
-            InvokeControl(selectCurrent);
-
         var match = ReplicaDefinition.SpoolMatch;
-        var listName = match?.ListName ?? "B024";
-        var protocol = match?.Protocol ?? "Protokoll: Zugangsliste";
+        var listName = match?.ListName ?? "5J0102";
+        var report = match?.ReportDescription ?? ReplicaDefinition.DisplayName;
         AutomationElement? target = null;
+        string? error = null;
 
         await WaitUntilUiAsync(() =>
         {
-            if (ScreenStatusContains("Ausgewählt") && ScreenStatusContains(listName))
+            error = null;
+            var found = FindMatchingDataSpoolRows(match, out var ambiguous);
+            if (ambiguous)
+            {
+                error = "AMBIGUOUS_SPOOL_MATCH";
                 return true;
-            if (TryFindByAutomationId("Spool_CurrentPrt") is not null)
-                return true;
-            target = FindNewestMatchingPrtRow(listName, protocol);
+            }
+            target = found;
             return target is not null;
         },
         TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-        $"spool PRT row {listName} after job start", ct);
+        $"spool data row '{report}' after job start", ct);
 
+        if (error == "AMBIGUOUS_SPOOL_MATCH")
+            throw new WilkenAutomationException("AMBIGUOUS_SPOOL_MATCH",
+                $"More than one new spool row matches '{report}' after job start. Refusing to guess.");
         if (target is null)
-            target = TryFindByAutomationId("Spool_CurrentPrt");
-        if (target is null)
-            return;
+            throw new WilkenAutomationException("SPOOL_ENTRY_NOT_FOUND",
+                $"No new data-report spool row for '{report}' (list {listName}) was found after job start. Protocol rows are ignored.");
 
         if (_job is not null)
         {
@@ -217,9 +375,79 @@ public partial class WindowsWilkenAutomationService
             _job.SpoolId = created == DateTime.MinValue
                 ? $"{listName}-{DateTime.UtcNow:yyyyMMddHHmmss}"
                 : $"{listName}-{created:yyyyMMddHHmmss}";
-            _logger.LogInformation("Matched spool {SpoolId} for job {JobId}.", _job.SpoolId, _job.JobId);
+            _logger.LogInformation("Matched data spool {SpoolId} for job {JobId}.", _job.SpoolId, _job.JobId);
         }
 
+        SelectRow(target);
+    }
+
+    /// <summary>
+    /// Selects the CSA metadata row whose next STOP description is the data report.
+    /// Protocol rows (Protokoll: …) and excluded report names are rejected.
+    /// </summary>
+    private AutomationElement? FindMatchingDataSpoolRows(SpoolMatchSpec? match, out bool ambiguous)
+    {
+        ambiguous = false;
+        var grid = TryFindByAutomationId("Spool_Grid");
+        if (grid is null) return null;
+
+        AutomationElement[] rows;
+        try
+        {
+            rows = grid.FindAllDescendants(cf => cf.ByClassName("DataGridRow"));
+            if (rows.Length == 0)
+                rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+        }
+        catch
+        {
+            return null;
+        }
+
+        var listName = match?.ListName;
+        var extension = match?.Extension;
+        var user = match?.User ?? "BHL";
+        var report = match?.ReportDescription ?? ReplicaDefinition.DisplayName;
+        var exclude = match?.ExcludeDescription;
+        var hits = new List<(AutomationElement Row, DateTime Created)>();
+
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var text = ReadSubtree(rows[i]);
+            if (text.Contains("Protokoll:", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrEmpty(listName) && !text.Contains(listName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrEmpty(extension) && !text.Contains(extension, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!text.Contains(user, StringComparison.OrdinalIgnoreCase)) continue;
+            if (text.Contains("PRT", StringComparison.OrdinalIgnoreCase)
+                && (string.IsNullOrEmpty(extension) || !string.Equals(extension, "PRT", StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            var nextText = i + 1 < rows.Length ? ReadSubtree(rows[i + 1]) : "";
+            if (nextText.Contains("Protokoll:", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!nextText.Contains(report, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrEmpty(exclude)
+                && nextText.Contains(exclude, StringComparison.OrdinalIgnoreCase)
+                && !report.Contains(exclude, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var created = ParseSpoolTimestamp(text);
+            if (created < _runStartedAtUtc.AddMinutes(-2)) continue;
+            if (_spoolSnapshot.Contains(SpoolRowKey(text, nextText))) continue;
+            hits.Add((rows[i], created));
+        }
+
+        if (hits.Count == 0) return null;
+        var newest = hits.Max(h => h.Created);
+        var top = hits.Where(h => h.Created == newest).ToList();
+        if (top.Count > 1)
+        {
+            ambiguous = true;
+            return null;
+        }
+        return top[0].Row;
+    }
+
+    private void SelectRow(AutomationElement target)
+    {
         WithoutStealingInput(() =>
         {
             try
@@ -245,52 +473,6 @@ public partial class WindowsWilkenAutomationService
                 catch { }
             }
         });
-    }
-
-    private AutomationElement? FindNewestMatchingPrtRow(string listName, string protocolText)
-    {
-        var grid = TryFindByAutomationId("Spool_Grid");
-        if (grid is null) return null;
-
-        AutomationElement[] rows;
-        try
-        {
-            rows = grid.FindAllDescendants(cf => cf.ByClassName("DataGridRow"));
-            if (rows.Length == 0)
-                rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
-        }
-        catch
-        {
-            return null;
-        }
-
-        AutomationElement? best = null;
-        var bestTime = DateTime.MinValue;
-        for (var i = 0; i < rows.Length; i++)
-        {
-            var text = ReadSubtree(rows[i]);
-            if (!text.Contains(listName, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!text.Contains("PRT", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!text.Contains("BHL", StringComparison.OrdinalIgnoreCase)) continue;
-
-            var nextText = i + 1 < rows.Length ? ReadSubtree(rows[i + 1]) : "";
-            if (!nextText.Contains(protocolText, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var created = ParseSpoolTimestamp(text);
-            if (created < _runStartedAtUtc.AddMinutes(-2))
-                continue;
-            var key = SpoolRowKey(text, nextText);
-            if (_spoolSnapshot.Contains(key))
-                continue;
-            if (created >= bestTime)
-            {
-                bestTime = created;
-                best = rows[i];
-            }
-        }
-
-        return best;
     }
 
     private void ReplicaCaptureSpoolSnapshot()
@@ -448,6 +630,74 @@ public partial class WindowsWilkenAutomationService
         {
             return false;
         }
+    }
+
+    private async Task VerifyValueAsync(string automationId, string expected, CancellationToken ct)
+    {
+        try
+        {
+            await WaitUntilUiAsync(
+                () => ControlShowsValue(TryFindByAutomationId(automationId), expected),
+                TimeSpan.FromSeconds(Math.Min(_options.NavigationTimeoutSeconds, 15)),
+                $"{automationId} = '{expected}'", ct);
+        }
+        catch (WaitTimeoutException ex)
+        {
+            var actual = TryFindByAutomationId(automationId) is { } el ? (el.Name ?? ReadValue(el)) : "<missing>";
+            throw new WilkenAutomationException("FIELD_MISMATCH",
+                $"Field '{automationId}' is '{actual}', expected '{expected}'.", inner: ex);
+        }
+    }
+
+    private async Task SetCheckAsync(string automationId, bool expected, CancellationToken ct)
+    {
+        var box = TryFindByAutomationId(automationId);
+        if (box is null)
+            throw new WilkenAutomationException("CONTROL_NOT_FOUND", $"Replica checkbox '{automationId}' was not found.");
+
+        if (CheckIsOn(box) != expected)
+        {
+            WithoutStealingInput(() =>
+            {
+                try
+                {
+                    if (box.Patterns.Toggle.IsSupported)
+                    {
+                        box.Patterns.Toggle.Pattern.Toggle();
+                        return;
+                    }
+                }
+                catch { }
+
+                try
+                {
+                    box.AsCheckBox().IsChecked = expected;
+                    return;
+                }
+                catch { }
+
+                InvokeControl(box);
+            });
+        }
+
+        await WaitUntilUiAsync(
+            () => CheckIsOn(TryFindByAutomationId(automationId) ?? box) == expected,
+            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+            $"{automationId} {(expected ? "checked" : "unchecked")}", ct);
+    }
+
+    private static bool CheckIsOn(AutomationElement? element)
+    {
+        if (element is null) return false;
+        try
+        {
+            if (element.Patterns.Toggle.IsSupported)
+                return element.Patterns.Toggle.Pattern.ToggleState.ValueOrDefault == ToggleState.On;
+        }
+        catch { }
+
+        try { return element.AsCheckBox().IsChecked == true; }
+        catch { return false; }
     }
 
     private async Task SetIdValueAsync(string automationId, string value, CancellationToken ct)

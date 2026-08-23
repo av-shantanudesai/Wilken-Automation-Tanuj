@@ -44,6 +44,29 @@ public class JobGeneratorTests : IDisposable
     }
 
     [Fact]
+    public async Task AlleAnlagen_Generates_ClientYear_Steuerrecht_Jobs()
+    {
+        var generator = _ctx.Generator();
+        var config = generator.BuildConfig(new CreateRunRequestDto
+        {
+            ClientCount = 2,
+            YearFrom = 2003,
+            YearTo = 2004,
+            ExportDefinitions = new List<string> { "AlleAnlagenNachKontenVerdichtet" }
+        });
+        Assert.Equal(4, config.ExpectedJobs);
+        var run = await generator.GenerateRunAsync(config, null, false, CancellationToken.None, 1);
+        var jobs = await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None);
+        Assert.Equal(4, jobs.Count);
+        Assert.All(jobs, j =>
+        {
+            Assert.Equal("AlleAnlagenNachKontenVerdichtet", j.ExportDefinition);
+            Assert.Equal("SPOOL", j.ExecutorType);
+            Assert.Equal("Steuerrecht", j.AccountingLaw);
+        });
+    }
+
+    [Fact]
     public async Task MasterData_Generates_ClientOnly_Jobs()
     {
         var generator = _ctx.Generator();

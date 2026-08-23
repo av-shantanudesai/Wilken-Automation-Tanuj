@@ -16,13 +16,17 @@
         "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx"
       },
       "spoolMatch": {
-        "listName": "B024",
-        "extension": "PRT",
-        "protocol": "Protokoll: Zugangsliste",
+        "listName": "5J0102",
+        "extension": "001",
+        "reportDescription": "Zugangsliste",
+        "excludeDescription": "Protokoll",
         "user": "BHL"
       },
-      "replicaNavId": "Nav_Zugangsliste",
-      "replicaTitleContains": "Zugangsliste erstellen"
+      "replicaNavId": "Nav_ProzesseVerwalten",
+      "replicaTitleContains": "Zugangsliste erstellen",
+      "replicaProcessProgram": "CAB024",
+      "replicaProcessNumber": "001",
+      "replicaProcessName": "Zugangsliste"
     },
     {
       "name": "Anlagenspiegel",
@@ -40,13 +44,45 @@
         "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx"
       },
       "spoolMatch": {
-        "listName": "B015",
-        "extension": "PRT",
-        "protocol": "Protokoll: Anlagenspiegel",
+        "listName": "4J0402",
+        "extension": "001",
+        "reportDescription": "Anlagenspiegel nach Anlagen",
+        "excludeDescription": "Alle Anlagen nach Konten verdichtet",
         "user": "BHL"
       },
-      "replicaNavId": "Nav_Anlagenspiegel",
-      "replicaTitleContains": "Anlagenspiegel erstellen"
+      "replicaNavId": "Nav_ProzesseVerwalten",
+      "replicaTitleContains": "Anlagenspiegel erstellen",
+      "replicaProcessProgram": "CAB015",
+      "replicaProcessNumber": "001",
+      "replicaProcessName": "Anlagenspiegel nach Anlagen"
+    },
+    {
+      "name": "AlleAnlagenNachKontenVerdichtet",
+      "type": "SPOOL",
+      "module": "Asset Accounting",
+      "displayName": "Alle Anlagen nach Konten verdichtet",
+      "requires": [ "CLIENT", "YEAR", "ACCOUNTING_LAW" ],
+      "defaults": { "ACCOUNTING_LAW": "Steuerrecht" },
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "SPOOL_CREATED"
+      },
+      "export": {
+        "format": "XLSX",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx"
+      },
+      "spoolMatch": {
+        "listName": "4J0402",
+        "extension": "003",
+        "reportDescription": "Alle Anlagen nach Konten verdichtet",
+        "excludeDescription": "Protokoll",
+        "user": "BHL"
+      },
+      "replicaNavId": "Nav_ProzesseVerwalten",
+      "replicaTitleContains": "Anlagenspiegel erstellen",
+      "replicaProcessProgram": "CAB015",
+      "replicaProcessNumber": "003",
+      "replicaProcessName": "Alle Anlagen nach Konten verdichtet"
     },
     {
       "name": "MasterData",

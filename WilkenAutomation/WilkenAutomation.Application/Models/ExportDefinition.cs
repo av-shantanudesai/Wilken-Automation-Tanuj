@@ -32,6 +32,10 @@ public sealed class ExportDefinition
     public SpoolMatchSpec? SpoolMatch { get; set; }
     public string? ReplicaNavId { get; set; }
     public string? ReplicaTitleContains { get; set; }
+    /// <summary>When set, open via Prozesse verwalten and open this saved process.</summary>
+    public string? ReplicaProcessProgram { get; set; }
+    public string? ReplicaProcessNumber { get; set; }
+    public string? ReplicaProcessName { get; set; }
 
     public bool RequiresDimension(string dimension) =>
         Requires.Any(r => string.Equals(r, dimension, StringComparison.OrdinalIgnoreCase));
@@ -59,4 +63,8 @@ public sealed class SpoolMatchSpec
     public string? Extension { get; set; }
     public string? Protocol { get; set; }
     public string? User { get; set; }
+    /// <summary>STOP description of the data report (not the Protokoll row).</summary>
+    public string? ReportDescription { get; set; }
+    /// <summary>Reject rows whose description contains this text.</summary>
+    public string? ExcludeDescription { get; set; }
 }

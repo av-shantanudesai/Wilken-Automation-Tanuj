@@ -53,7 +53,9 @@ export class NewRunPage implements OnInit {
       const p = requires.includes('PERIOD') ? 1 : 1;
       let l = 1;
       if (requires.includes('ACCOUNTING_LAW')) {
-        const preferred = name === 'Anlagenspiegel' ? 'Steuerrecht' : name === 'Zugangsliste' ? 'Handelsrecht' : null;
+        const preferred = name === 'Anlagenspiegel' || name === 'AlleAnlagenNachKontenVerdichtet'
+          ? 'Steuerrecht'
+          : name === 'Zugangsliste' ? 'Handelsrecht' : null;
         l = preferred ? (laws.includes(preferred) ? 1 : 0) : laws.length;
       }
       total += c * y * p * l;
@@ -68,6 +70,7 @@ export class NewRunPage implements OnInit {
       this.definitions.set([
         { name: 'Zugangsliste', type: 'SPOOL', module: 'Asset Accounting', displayName: 'Zugangsliste', requires: ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'], format: 'XLSX' },
         { name: 'Anlagenspiegel', type: 'SPOOL', module: 'Asset Accounting', displayName: 'Anlagenspiegel nach Anlagen', requires: ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'], format: 'XLSX' },
+        { name: 'AlleAnlagenNachKontenVerdichtet', type: 'SPOOL', module: 'Asset Accounting', displayName: 'Alle Anlagen nach Konten verdichtet', requires: ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'], format: 'XLSX' },
         { name: 'MasterData', type: 'VIEW', module: 'Asset Accounting', displayName: 'Asset master data', requires: ['CLIENT'], format: 'CSV' },
         { name: 'Bookings', type: 'VIEW', module: 'Asset Accounting', displayName: 'Bookings by period', requires: ['CLIENT', 'YEAR', 'PERIOD'], format: 'CSV' },
       ]);

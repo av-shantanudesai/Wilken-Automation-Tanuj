@@ -79,9 +79,19 @@ public sealed class ExportDefinitionCatalog
             Defaults = new(StringComparer.OrdinalIgnoreCase) { [ExportDimensions.AccountingLaw] = "Handelsrecht" },
             Execution = new() { CompletionDetection = "SPOOL_CREATED" },
             Export = new() { Format = "XLSX", Filename = "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx" },
-            SpoolMatch = new() { ListName = "B024", Extension = "PRT", Protocol = "Protokoll: Zugangsliste", User = "BHL" },
-            ReplicaNavId = "Nav_Zugangsliste",
-            ReplicaTitleContains = "Zugangsliste erstellen"
+            SpoolMatch = new()
+            {
+                ListName = "5J0102",
+                Extension = "001",
+                ReportDescription = "Zugangsliste",
+                ExcludeDescription = "Protokoll",
+                User = "BHL"
+            },
+            ReplicaNavId = "Nav_ProzesseVerwalten",
+            ReplicaTitleContains = "Zugangsliste erstellen",
+            ReplicaProcessProgram = "CAB024",
+            ReplicaProcessNumber = "001",
+            ReplicaProcessName = "Zugangsliste"
         };
         yield return new ExportDefinition
         {
@@ -92,9 +102,42 @@ public sealed class ExportDefinitionCatalog
             Defaults = new(StringComparer.OrdinalIgnoreCase) { [ExportDimensions.AccountingLaw] = "Steuerrecht" },
             Execution = new() { CompletionDetection = "SPOOL_CREATED" },
             Export = new() { Format = "XLSX", Filename = "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx" },
-            SpoolMatch = new() { ListName = "B015", Extension = "PRT", Protocol = "Protokoll: Anlagenspiegel", User = "BHL" },
-            ReplicaNavId = "Nav_Anlagenspiegel",
-            ReplicaTitleContains = "Anlagenspiegel erstellen"
+            SpoolMatch = new()
+            {
+                ListName = "4J0402",
+                Extension = "001",
+                ReportDescription = "Anlagenspiegel nach Anlagen",
+                ExcludeDescription = "Alle Anlagen nach Konten verdichtet",
+                User = "BHL"
+            },
+            ReplicaNavId = "Nav_ProzesseVerwalten",
+            ReplicaTitleContains = "Anlagenspiegel erstellen",
+            ReplicaProcessProgram = "CAB015",
+            ReplicaProcessNumber = "001",
+            ReplicaProcessName = "Anlagenspiegel nach Anlagen"
+        };
+        yield return new ExportDefinition
+        {
+            Name = "AlleAnlagenNachKontenVerdichtet",
+            Type = ExecutorTypes.Spool,
+            DisplayName = "Alle Anlagen nach Konten verdichtet",
+            Requires = new() { ExportDimensions.Client, ExportDimensions.Year, ExportDimensions.AccountingLaw },
+            Defaults = new(StringComparer.OrdinalIgnoreCase) { [ExportDimensions.AccountingLaw] = "Steuerrecht" },
+            Execution = new() { CompletionDetection = "SPOOL_CREATED" },
+            Export = new() { Format = "XLSX", Filename = "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx" },
+            SpoolMatch = new()
+            {
+                ListName = "4J0402",
+                Extension = "003",
+                ReportDescription = "Alle Anlagen nach Konten verdichtet",
+                ExcludeDescription = "Protokoll",
+                User = "BHL"
+            },
+            ReplicaNavId = "Nav_ProzesseVerwalten",
+            ReplicaTitleContains = "Anlagenspiegel erstellen",
+            ReplicaProcessProgram = "CAB015",
+            ReplicaProcessNumber = "003",
+            ReplicaProcessName = "Alle Anlagen nach Konten verdichtet"
         };
         yield return new ExportDefinition
         {
