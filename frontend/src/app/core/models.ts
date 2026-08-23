@@ -150,6 +150,8 @@ export interface CreateRunRequest {
   simulation?: SimulationOptions;
   notes?: string;
   autoStart?: boolean;
+  wilkenExecutablePath?: string;
+  exportRootDirectory?: string;
 }
 
 export interface JobQuery {

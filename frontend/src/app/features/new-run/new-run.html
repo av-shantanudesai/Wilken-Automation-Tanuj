@@ -17,9 +17,17 @@
     </div>
 
     <h2>Scope</h2>
+    <div class="path-row">
+      <label>Mandant / Client IDs</label>
+      <input type="text"
+             placeholder="e.g. 02  or  001, 002, 041"
+             [ngModel]="clientsText()"
+             (ngModelChange)="clientsText.set($event)" />
+      <p class="hint">Comma- or space-separated Wilken Mandant codes. Leave empty to generate 001…N from the count below.</p>
+    </div>
     <div class="form-grid">
       <div>
-        <label>Number of clients</label>
+        <label>Number of clients (if IDs empty)</label>
         <input type="number" min="1" max="999" [ngModel]="clientCount()" (ngModelChange)="clientCount.set(+$event)" />
       </div>
       <div>
@@ -63,6 +71,24 @@
       </label>
     </div>
 
+    <h2>Wilken desktop and export folder</h2>
+    <div class="path-row">
+      <label>Wilken desktop executable</label>
+      <input type="text"
+             placeholder="C:\Program Files\Wilken\CS2\Wilken.exe  or  replica .exe"
+             [ngModel]="wilkenExecutablePath()"
+             (ngModelChange)="wilkenExecutablePath.set($event)" />
+      <p class="hint">Full path of the Wilken CS/2 (or replica) desktop to launch. Leave empty to use the Worker appsettings path.</p>
+    </div>
+    <div class="path-row">
+      <label>Export report folder</label>
+      <input type="text"
+             placeholder="C:\WilkenExports"
+             [ngModel]="exportRootDirectory()"
+             (ngModelChange)="exportRootDirectory.set($event)" />
+      <p class="hint">Folder where original validated exports are stored (Mandant / year subfolders). Leave empty for the Worker default.</p>
+    </div>
+
     <div class="notes-row">
       <label>Notes</label>
       <input type="text" placeholder="e.g. Pilot acceptance run" [ngModel]="notes()" (ngModelChange)="notes.set($event)" />
@@ -96,7 +122,7 @@
   <div class="card summary-card">
     <h2>Expected job count</h2>
     <div class="calc">
-      <span>{{ clientCount() }}</span> clients ×
+      <span>{{ effectiveClientCount() }}</span> clients ×
       <span>{{ yearCount() }}</span> years ×
       <span>{{ departmentCount() }}</span> laws ×
       <span>{{ selectedExports().length }}</span> exports

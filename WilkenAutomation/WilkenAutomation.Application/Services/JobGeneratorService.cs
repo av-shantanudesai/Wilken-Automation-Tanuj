@@ -35,7 +35,7 @@ public class JobGeneratorService
     public RunConfig BuildConfig(CreateRunRequestDto request)
     {
         var clients = request.Clients is { Count: > 0 }
-            ? request.Clients
+            ? request.Clients.Select(c => c.Trim()).Where(c => c.Length > 0).ToList()
             : Enumerable.Range(1, request.ClientCount ?? _defaults.ClientCount).Select(i => i.ToString("D3")).ToList();
 
         List<int> years;
@@ -65,7 +65,11 @@ public class JobGeneratorService
             MaxAttempts = request.MaxAttempts ?? 3,
             EnableContentValidation = request.EnableContentValidation ?? true,
             EnableChecksum = request.EnableChecksum ?? true,
-            Simulation = request.Simulation ?? new SimulationConfig()
+            Simulation = request.Simulation ?? new SimulationConfig(),
+            WilkenExecutablePath = string.IsNullOrWhiteSpace(request.WilkenExecutablePath)
+                ? null : request.WilkenExecutablePath.Trim(),
+            ExportRootDirectory = string.IsNullOrWhiteSpace(request.ExportRootDirectory)
+                ? null : request.ExportRootDirectory.Trim()
         };
         config.ExpectedJobs = ExpandJobs(config).Count;
         return config;

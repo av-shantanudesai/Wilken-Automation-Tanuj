@@ -44,6 +44,23 @@ public class JobGeneratorTests : IDisposable
     }
 
     [Fact]
+    public void BuildConfig_Persists_Dashboard_Mandants_And_Paths()
+    {
+        var generator = _ctx.Generator();
+        var config = generator.BuildConfig(new CreateRunRequestDto
+        {
+            Clients = new List<string> { "02", " 041 " },
+            YearFrom = 2003,
+            YearTo = 2003,
+            WilkenExecutablePath = @"C:\Wilken\CS2\Wilken.exe",
+            ExportRootDirectory = @"C:\WilkenExports"
+        });
+        Assert.Equal(new[] { "02", "041" }, config.Clients);
+        Assert.Equal(@"C:\Wilken\CS2\Wilken.exe", config.WilkenExecutablePath);
+        Assert.Equal(@"C:\WilkenExports", config.ExportRootDirectory);
+    }
+
+    [Fact]
     public async Task AlleAnlagen_Generates_ClientYear_Steuerrecht_Jobs()
     {
         var generator = _ctx.Generator();

@@ -167,6 +167,10 @@ public class CreateRunRequestDto
     public SimulationConfig? Simulation { get; set; }
     public string? Notes { get; set; }
     public bool AutoStart { get; set; }
+    /// <summary>Full path to Wilken CS/2 or the replica executable for this run.</summary>
+    public string? WilkenExecutablePath { get; set; }
+    /// <summary>Folder where original export files for this run are stored.</summary>
+    public string? ExportRootDirectory { get; set; }
 }
 
 public class RegisterRequestDto

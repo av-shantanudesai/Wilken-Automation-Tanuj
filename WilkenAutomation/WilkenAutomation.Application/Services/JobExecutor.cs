@@ -135,7 +135,7 @@ public class JobExecutor
                 ct);
 
             // Move the original into its final location without ever silently overwriting.
-            var finalPath = PlaceOriginalFile(producedPath, job, attemptNumber, definition);
+            var finalPath = PlaceOriginalFile(producedPath, job, attemptNumber, definition, config);
             var fileInfo = new FileInfo(finalPath);
             job.FileName = fileInfo.Name;
             job.FilePath = fileInfo.FullName;
@@ -262,7 +262,7 @@ public class JobExecutor
     /// modification. An existing file is never silently overwritten - retries get
     /// a unique attempt-suffixed name instead.
     /// </summary>
-    private string PlaceOriginalFile(string producedPath, ExportJob job, int attemptNumber, ExportDefinition definition)
+    private string PlaceOriginalFile(string producedPath, ExportJob job, int attemptNumber, ExportDefinition definition, RunConfig config)
     {
         var extension = Path.GetExtension(producedPath);
         if (string.IsNullOrEmpty(extension))
@@ -271,7 +271,10 @@ public class JobExecutor
             extension = string.IsNullOrWhiteSpace(format) ? _exportSettings.FileExtension : "." + format.Trim().TrimStart('.');
         }
 
-        var directory = ExportFilename.DirectoryFor(job, _exportSettings.RootDirectory, definition.Export.Directory);
+        var root = string.IsNullOrWhiteSpace(config.ExportRootDirectory)
+            ? _exportSettings.RootDirectory
+            : config.ExportRootDirectory;
+        var directory = ExportFilename.DirectoryFor(job, root, definition.Export.Directory);
         Directory.CreateDirectory(directory);
 
         var baseName = Path.GetFileNameWithoutExtension(ExportFilename.Render(definition.Export.Filename, job));

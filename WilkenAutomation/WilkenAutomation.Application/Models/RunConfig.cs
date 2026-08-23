@@ -21,6 +21,12 @@ public class RunConfig
 
     public SimulationConfig Simulation { get; set; } = new();
 
+    /// <summary>Wilken / replica desktop exe chosen on the dashboard. Empty = worker appsettings.</summary>
+    public string? WilkenExecutablePath { get; set; }
+
+    /// <summary>Folder for archived original exports. Empty = Export:RootDirectory.</summary>
+    public string? ExportRootDirectory { get; set; }
+
     /// <summary>Filled by the generator from the selected export definitions.</summary>
     public int ExpectedJobs { get; set; }
 }

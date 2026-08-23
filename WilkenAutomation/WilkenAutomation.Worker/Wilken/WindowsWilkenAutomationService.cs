@@ -29,6 +29,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
     private Window? _mainWindow;
 
     private ExportJob? _job;
+    private RunConfig? _runConfig;
     private DateTime _runStartedAtUtc;
     private readonly HashSet<string> _spoolSnapshot = new(StringComparer.OrdinalIgnoreCase);
     private readonly ExportDefinitionCatalog _catalog;
@@ -56,6 +57,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
     public Task BeginJobAsync(ExportJob job, RunConfig config, CancellationToken ct)
     {
         _job = job;
+        _runConfig = config;
         _runStartedAtUtc = DateTime.UtcNow;
         return Task.CompletedTask;
     }
@@ -518,24 +520,30 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         }
     }
 
-    private string EffectiveProcessName() =>
-        string.IsNullOrWhiteSpace(_options.ProcessName)
+    private string EffectiveProcessName()
+    {
+        var fromRun = _runConfig?.WilkenExecutablePath?.Trim();
+        if (!string.IsNullOrWhiteSpace(fromRun))
+            return Path.GetFileNameWithoutExtension(fromRun);
+        return string.IsNullOrWhiteSpace(_options.ProcessName)
             ? Path.GetFileNameWithoutExtension(_options.ExecutablePath)
             : _options.ProcessName;
+    }
 
     private static Process[] GetWilkenProcesses(string processName) =>
         string.IsNullOrEmpty(processName) ? Array.Empty<Process>() : Process.GetProcessesByName(processName);
 
     private void LaunchWilken()
     {
-        if (string.IsNullOrEmpty(_options.ExecutablePath) || !File.Exists(_options.ExecutablePath))
+        var exe = EffectiveExecutablePath();
+        if (string.IsNullOrEmpty(exe) || !File.Exists(exe))
             throw new WilkenAutomationException("WILKEN_EXE_NOT_FOUND",
-                $"Wilken executable not configured or missing: '{_options.ExecutablePath}'. Set Wilken:ExecutablePath.",
+                $"Wilken executable not configured or missing: '{exe}'. Set the path on New Run or Wilken:ExecutablePath.",
                 sessionLost: true);
 
         _app = FlaUI.Core.Application.Launch(new ProcessStartInfo
         {
-            FileName = _options.ExecutablePath,
+            FileName = exe,
             UseShellExecute = true,
             WindowStyle = IsReplica ? ProcessWindowStyle.Normal : ProcessWindowStyle.Minimized
         });
@@ -543,7 +551,15 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
             IsReplica
                 ? "Launched Wilken CS/2 replica ({Path}). Window stays visible; automation uses UIA only (no mouse)."
                 : "Launched Wilken CS/2 ({Path}). Starts minimized; restore from the taskbar to watch. Automation uses UIA only (no mouse).",
-            _options.ExecutablePath);
+            exe);
+    }
+
+    private string EffectiveExecutablePath()
+    {
+        var fromRun = _runConfig?.WilkenExecutablePath?.Trim();
+        if (!string.IsNullOrWhiteSpace(fromRun))
+            return fromRun;
+        return _options.ExecutablePath ?? "";
     }
 
     private async Task KillTrackedProcessAsync()

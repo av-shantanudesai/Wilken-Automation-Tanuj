@@ -16,6 +16,9 @@ export class NewRunPage implements OnInit {
   private router = inject(Router);
 
   clientCount = signal(2);
+  clientsText = signal('001, 002');
+  wilkenExecutablePath = signal('');
+  exportRootDirectory = signal('');
   yearFrom = signal(2003);
   yearTo = signal(2004);
   commercialLaw = signal(true);
@@ -37,8 +40,17 @@ export class NewRunPage implements OnInit {
 
   readonly departmentCount = computed(() => (this.commercialLaw() ? 1 : 0) + (this.taxLaw() ? 1 : 0));
   readonly yearCount = computed(() => Math.max(0, this.yearTo() - this.yearFrom() + 1));
+  readonly parsedClients = computed(() =>
+    this.clientsText()
+      .split(/[,;\s]+/)
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0),
+  );
+  readonly effectiveClientCount = computed(() =>
+    this.parsedClients().length > 0 ? this.parsedClients().length : this.clientCount(),
+  );
   readonly expectedJobs = computed(() => {
-    const clients = this.clientCount();
+    const clients = this.effectiveClientCount();
     const years = this.yearCount();
     const laws = [
       ...(this.commercialLaw() ? ['Handelsrecht'] : []),
@@ -84,6 +96,7 @@ export class NewRunPage implements OnInit {
 
   applyPilot(): void {
     this.clientCount.set(2);
+    this.clientsText.set('001, 002');
     this.yearFrom.set(2003);
     this.yearTo.set(2004);
     this.commercialLaw.set(true);
@@ -92,6 +105,7 @@ export class NewRunPage implements OnInit {
 
   applyFull(): void {
     this.clientCount.set(78);
+    this.clientsText.set('');
     this.yearFrom.set(2003);
     this.yearTo.set(2025);
     this.commercialLaw.set(true);
@@ -110,8 +124,9 @@ export class NewRunPage implements OnInit {
         ...(this.commercialLaw() ? ['Handelsrecht'] : []),
         ...(this.taxLaw() ? ['Steuerrecht'] : []),
       ];
+      const clients = this.parsedClients();
       const run = await this.api.createRun({
-        clientCount: this.clientCount(),
+        ...(clients.length > 0 ? { clients } : { clientCount: this.clientCount() }),
         yearFrom: this.yearFrom(),
         yearTo: this.yearTo(),
         departments,
@@ -119,6 +134,8 @@ export class NewRunPage implements OnInit {
         maxAttempts: this.maxAttempts(),
         autoStart: this.autoStart(),
         notes: this.notes() || undefined,
+        wilkenExecutablePath: this.wilkenExecutablePath().trim() || undefined,
+        exportRootDirectory: this.exportRootDirectory().trim() || undefined,
         simulation: {
           minJobSeconds: this.minJobSeconds(),
           maxJobSeconds: this.maxJobSeconds(),
