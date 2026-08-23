@@ -5,6 +5,7 @@ using WilkenAutomation.Application.Enums;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Models;
 using WilkenAutomation.Application.Services;
+using WilkenAutomation.Application.Services.Exporting;
 using WilkenAutomation.Application.Validators;
 using WilkenAutomation.Infrastructure.Database;
 using WilkenAutomation.Infrastructure.FileSystem;
@@ -46,11 +47,15 @@ public sealed class TestContext : IDisposable
         };
     }
 
+    public ExportDefinitionCatalog Catalog { get; } = new(ExportDefinitionCatalog.Builtin());
+
     public JobGeneratorService Generator(RunDefaults? defaults = null) =>
-        new(Runs, defaults ?? new RunDefaults());
+        new(Runs, defaults ?? new RunDefaults(), Catalog);
 
     public JobExecutor Executor(IWilkenAutomationService automation) =>
-        new(Jobs, Runs, Logs, automation, Validator, Checksum, Screenshots, Notifier,
+        new(Jobs, Runs, Logs, automation,
+            new IExportExecutor[] { new SpoolExecutor(), new ViewExecutor() },
+            Catalog, Validator, Checksum, Screenshots, Notifier,
             ExportSettings, WilkenOptions, NullLogger<JobExecutor>.Instance);
 
     public MockWilkenAutomationService MockAutomation() =>

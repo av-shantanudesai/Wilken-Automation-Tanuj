@@ -493,6 +493,15 @@ export class MockExportApi implements ExportApi {
     return [...logs].sort((a, b) => b.id - a.id).slice(0, limit);
   }
 
+  async listExportDefinitions() {
+    return [
+      { name: 'Zugangsliste', type: 'SPOOL', module: 'Asset Accounting', displayName: 'Zugangsliste', requires: ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'], format: 'XLSX' },
+      { name: 'Anlagenspiegel', type: 'SPOOL', module: 'Asset Accounting', displayName: 'Anlagenspiegel nach Anlagen', requires: ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'], format: 'XLSX' },
+      { name: 'MasterData', type: 'VIEW', module: 'Asset Accounting', displayName: 'Asset master data', requires: ['CLIENT'], format: 'CSV' },
+      { name: 'Bookings', type: 'VIEW', module: 'Asset Accounting', displayName: 'Bookings by period', requires: ['CLIENT', 'YEAR', 'PERIOD'], format: 'CSV' },
+    ];
+  }
+
   // ---------------------------------------------------------------- helpers
 
   private toSummary(run: MockRun): RunSummary {

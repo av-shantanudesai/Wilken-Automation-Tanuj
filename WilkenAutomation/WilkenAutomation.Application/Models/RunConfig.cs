@@ -9,6 +9,8 @@ public class RunConfig
     public List<string> Clients { get; set; } = new();
     public List<int> Years { get; set; } = new();
     public List<string> Departments { get; set; } = new();
+    public List<string> Periods { get; set; } = new();
+    public List<string> ExportDefinitions { get; set; } = new();
 
     /// <summary>Sort precedence, e.g. "Client,FiscalYear,Department".</summary>
     public string JobOrder { get; set; } = "Client,FiscalYear,Department";
@@ -19,7 +21,8 @@ public class RunConfig
 
     public SimulationConfig Simulation { get; set; } = new();
 
-    public int ExpectedJobs => Clients.Count * Years.Count * Departments.Count;
+    /// <summary>Filled by the generator from the selected export definitions.</summary>
+    public int ExpectedJobs { get; set; }
 }
 
 /// <summary>Behavior of the mock automation mode (accepted from the existing frontend).</summary>

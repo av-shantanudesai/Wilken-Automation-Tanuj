@@ -64,6 +64,11 @@ export interface Job {
   fiscalYear: number;
   department: string;
   departmentCode: string;
+  exportDefinition?: string;
+  executorType?: string;
+  period?: string;
+  accountingLaw?: string;
+  spoolId?: string | null;
   orderIndex: number;
   status: JobStatus;
   attemptCount: number;
@@ -136,6 +141,8 @@ export interface CreateRunRequest {
   yearFrom?: number;
   yearTo?: number;
   departments?: string[];
+  periods?: string[];
+  exportDefinitions?: string[];
   jobOrder?: string;
   maxAttempts?: number;
   enableContentValidation?: boolean;
@@ -158,6 +165,15 @@ export interface JobQuery {
 export interface JobDetail {
   job: Job;
   logs: LogEntry[];
+}
+
+export interface ExportDefinitionInfo {
+  name: string;
+  type: string;
+  module: string;
+  displayName: string;
+  requires: string[];
+  format: string;
 }
 
 export interface AuthUser {

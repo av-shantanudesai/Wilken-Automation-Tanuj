@@ -1,8 +1,9 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { describeError } from '../../core/errors';
+import { ExportDefinitionInfo } from '../../core/models';
 
 @Component({
   selector: 'app-new-run',
@@ -10,7 +11,7 @@ import { describeError } from '../../core/errors';
   templateUrl: './new-run.html',
   styleUrl: './new-run.scss',
 })
-export class NewRunPage {
+export class NewRunPage implements OnInit {
   private api = inject(ApiService);
   private router = inject(Router);
 
@@ -19,6 +20,8 @@ export class NewRunPage {
   yearTo = signal(2004);
   commercialLaw = signal(true);
   taxLaw = signal(true);
+  selectedExports = signal<string[]>(['Zugangsliste', 'Anlagenspiegel']);
+  definitions = signal<ExportDefinitionInfo[]>([]);
   maxAttempts = signal(3);
   autoStart = signal(true);
   notes = signal('');
@@ -34,7 +37,47 @@ export class NewRunPage {
 
   readonly departmentCount = computed(() => (this.commercialLaw() ? 1 : 0) + (this.taxLaw() ? 1 : 0));
   readonly yearCount = computed(() => Math.max(0, this.yearTo() - this.yearFrom() + 1));
-  readonly expectedJobs = computed(() => this.clientCount() * this.yearCount() * this.departmentCount());
+  readonly expectedJobs = computed(() => {
+    const clients = this.clientCount();
+    const years = this.yearCount();
+    const laws = [
+      ...(this.commercialLaw() ? ['Handelsrecht'] : []),
+      ...(this.taxLaw() ? ['Steuerrecht'] : []),
+    ];
+    let total = 0;
+    for (const name of this.selectedExports()) {
+      const def = this.definitions().find((d) => d.name === name);
+      const requires = def?.requires ?? ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'];
+      const c = requires.includes('CLIENT') ? clients : 1;
+      const y = requires.includes('YEAR') ? years : 1;
+      const p = requires.includes('PERIOD') ? 1 : 1;
+      let l = 1;
+      if (requires.includes('ACCOUNTING_LAW')) {
+        const preferred = name === 'Anlagenspiegel' ? 'Steuerrecht' : name === 'Zugangsliste' ? 'Handelsrecht' : null;
+        l = preferred ? (laws.includes(preferred) ? 1 : 0) : laws.length;
+      }
+      total += c * y * p * l;
+    }
+    return total;
+  });
+
+  async ngOnInit(): Promise<void> {
+    try {
+      this.definitions.set(await this.api.listExportDefinitions());
+    } catch {
+      this.definitions.set([
+        { name: 'Zugangsliste', type: 'SPOOL', module: 'Asset Accounting', displayName: 'Zugangsliste', requires: ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'], format: 'XLSX' },
+        { name: 'Anlagenspiegel', type: 'SPOOL', module: 'Asset Accounting', displayName: 'Anlagenspiegel nach Anlagen', requires: ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'], format: 'XLSX' },
+        { name: 'MasterData', type: 'VIEW', module: 'Asset Accounting', displayName: 'Asset master data', requires: ['CLIENT'], format: 'CSV' },
+        { name: 'Bookings', type: 'VIEW', module: 'Asset Accounting', displayName: 'Bookings by period', requires: ['CLIENT', 'YEAR', 'PERIOD'], format: 'CSV' },
+      ]);
+    }
+  }
+
+  toggleExport(name: string, on: boolean): void {
+    const current = this.selectedExports();
+    this.selectedExports.set(on ? [...new Set([...current, name])] : current.filter((n) => n !== name));
+  }
 
   applyPilot(): void {
     this.clientCount.set(2);
@@ -69,6 +112,7 @@ export class NewRunPage {
         yearFrom: this.yearFrom(),
         yearTo: this.yearTo(),
         departments,
+        exportDefinitions: this.selectedExports(),
         maxAttempts: this.maxAttempts(),
         autoStart: this.autoStart(),
         notes: this.notes() || undefined,

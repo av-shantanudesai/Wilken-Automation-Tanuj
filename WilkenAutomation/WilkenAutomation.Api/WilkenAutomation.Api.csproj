@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\WilkenAutomation.Application\ExportDefinitions\catalog.json" Link="export-definitions.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\WilkenAutomation.Application\WilkenAutomation.Application.csproj" />
     <ProjectReference Include="..\WilkenAutomation.Infrastructure\WilkenAutomation.Infrastructure.csproj" />
   </ItemGroup>

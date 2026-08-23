@@ -69,6 +69,22 @@ public static class DatabaseSchemaPatcher
             await db.Database.ExecuteSqlRawAsync(
                 "CREATE INDEX IX_AutomationRuns_UserId ON AutomationRuns (UserId)", ct);
         }
+
+        await EnsureColumnAsync(db, "ExportJobs", "ExportDefinition", "varchar(64) NOT NULL DEFAULT ''", ct);
+        await EnsureColumnAsync(db, "ExportJobs", "ExecutorType", "varchar(16) NOT NULL DEFAULT 'SPOOL'", ct);
+        await EnsureColumnAsync(db, "ExportJobs", "Period", "varchar(32) NOT NULL DEFAULT ''", ct);
+        await EnsureColumnAsync(db, "ExportJobs", "AccountingLaw", "varchar(64) NOT NULL DEFAULT ''", ct);
+        await EnsureColumnAsync(db, "ExportJobs", "Company", "varchar(64) NOT NULL DEFAULT ''", ct);
+        await EnsureColumnAsync(db, "ExportJobs", "SpoolId", "varchar(96) NULL", ct);
+    }
+
+    private static async Task EnsureColumnAsync(AutomationDbContext db, string table, string column, string typeSql, CancellationToken ct)
+    {
+        var exists = await ScalarAsync(db,
+            $"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table}' AND COLUMN_NAME = '{column}'",
+            ct);
+        if (exists == 0)
+            await db.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} ADD COLUMN {column} {typeSql}", ct);
     }
 
     private static async Task PatchSqliteAsync(AutomationDbContext db, CancellationToken ct)
@@ -108,6 +124,21 @@ public static class DatabaseSchemaPatcher
         if (hasUserId == 0)
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE AutomationRuns ADD COLUMN UserId INTEGER NOT NULL DEFAULT 0", ct);
+
+        await EnsureSqliteColumnAsync(db, "ExportJobs", "ExportDefinition", "TEXT NOT NULL DEFAULT ''", ct);
+        await EnsureSqliteColumnAsync(db, "ExportJobs", "ExecutorType", "TEXT NOT NULL DEFAULT 'SPOOL'", ct);
+        await EnsureSqliteColumnAsync(db, "ExportJobs", "Period", "TEXT NOT NULL DEFAULT ''", ct);
+        await EnsureSqliteColumnAsync(db, "ExportJobs", "AccountingLaw", "TEXT NOT NULL DEFAULT ''", ct);
+        await EnsureSqliteColumnAsync(db, "ExportJobs", "Company", "TEXT NOT NULL DEFAULT ''", ct);
+        await EnsureSqliteColumnAsync(db, "ExportJobs", "SpoolId", "TEXT NULL", ct);
+    }
+
+    private static async Task EnsureSqliteColumnAsync(AutomationDbContext db, string table, string column, string typeSql, CancellationToken ct)
+    {
+        var exists = await ScalarAsync(db,
+            $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'", ct);
+        if (exists == 0)
+            await db.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} ADD COLUMN {column} {typeSql}", ct);
     }
 
     private static async Task<long> ScalarAsync(AutomationDbContext db, string sql, CancellationToken ct)

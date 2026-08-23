@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import {
   AuditReport,
   CreateRunRequest,
+  ExportDefinitionInfo,
   Job,
   JobDetail,
   JobQuery,
@@ -63,4 +64,5 @@ export class ApiService implements ExportApi {
   getLogs(runId?: string, jobId?: string, limit?: number): Promise<LogEntry[]> {
     return this.api.getLogs(runId, jobId, limit);
   }
+  listExportDefinitions(): Promise<ExportDefinitionInfo[]> { return this.api.listExportDefinitions(); }
 }

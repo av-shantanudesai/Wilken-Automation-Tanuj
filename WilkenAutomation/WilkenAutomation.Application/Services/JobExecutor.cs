@@ -21,6 +21,8 @@ public class JobExecutor
     private readonly IRunRepository _runs;
     private readonly ILogRepository _logs;
     private readonly IWilkenAutomationService _wilken;
+    private readonly IReadOnlyDictionary<string, IExportExecutor> _executors;
+    private readonly ExportDefinitionCatalog _catalog;
     private readonly IExportFileValidator _validator;
     private readonly IChecksumService _checksum;
     private readonly IScreenshotService _screenshots;
@@ -34,6 +36,8 @@ public class JobExecutor
         IRunRepository runs,
         ILogRepository logs,
         IWilkenAutomationService wilken,
+        IEnumerable<IExportExecutor> executors,
+        ExportDefinitionCatalog catalog,
         IExportFileValidator validator,
         IChecksumService checksum,
         IScreenshotService screenshots,
@@ -46,6 +50,8 @@ public class JobExecutor
         _runs = runs;
         _logs = logs;
         _wilken = wilken;
+        _executors = executors.ToDictionary(e => e.ExecutorType, e => e, StringComparer.OrdinalIgnoreCase);
+        _catalog = catalog;
         _validator = validator;
         _checksum = checksum;
         _screenshots = screenshots;
@@ -102,34 +108,23 @@ public class JobExecutor
             }
             await _wilken.EnsureSessionAsync(ct);
 
-            // Steps 3-6 - navigate and verify selection
-            await SetState(job, ApplicationState.SelectingClient, userId, ct);
-            await _wilken.SelectClientAsync(job.Client, ct);
+            var definition = _catalog.ResolveForJob(job);
+            job.ExportDefinition = definition.Name;
+            job.ExecutorType = definition.Type;
+            if (string.IsNullOrWhiteSpace(job.AccountingLaw))
+                job.AccountingLaw = job.Department;
 
-            await SetState(job, ApplicationState.OpeningAssetAccounting, userId, ct);
-            await _wilken.OpenAssetAccountingAsync(ct);
+            if (!_executors.TryGetValue(definition.Type, out var executor))
+                throw new WilkenAutomationException("EXECUTOR_NOT_FOUND", $"No executor registered for '{definition.Type}'.");
 
-            await SetState(job, ApplicationState.SettingYear, userId, ct);
-            await _wilken.SetFiscalYearAsync(job.FiscalYear, ct);
-
-            await SetState(job, ApplicationState.SelectingDepartment, userId, ct);
-            await _wilken.SelectDepartmentAsync(job.Department, ct);
-
-            // Steps 7-8 - evaluation, state-based report wait
-            await SetState(job, ApplicationState.StartingReport, userId, ct);
-            await _wilken.StartEvaluationAsync(ct);
-
-            await SetState(job, ApplicationState.WaitingForReport, userId, ct);
-            await _wilken.WaitForReportReadyAsync(ct);
-            await LogAsync(job, "INFO", "ReportReady", "Report/spool generation completed.", attemptNumber, ct: ct);
-
-            // Step 9 - spool
-            await SetState(job, ApplicationState.OpeningSpool, userId, ct);
-            await _wilken.OpenSpoolAsync(ct);
-
-            // Step 10 - export
-            await SetState(job, ApplicationState.Exporting, userId, ct);
-            var producedPath = await _wilken.ExportAsync(job, ct);
+            var producedPath = await executor.RunAsync(
+                job,
+                config,
+                definition,
+                _wilken,
+                state => SetState(job, state, userId, ct),
+                ct);
+            await LogAsync(job, "INFO", "ReportReady", $"{definition.Name} ({definition.Type}) completed.", attemptNumber, ct: ct);
 
             // Step 11 - wait until file creation actually completed
             await SetState(job, ApplicationState.WaitingForFile, userId, ct);
@@ -140,7 +135,7 @@ public class JobExecutor
                 ct);
 
             // Move the original into its final location without ever silently overwriting.
-            var finalPath = PlaceOriginalFile(producedPath, job, attemptNumber);
+            var finalPath = PlaceOriginalFile(producedPath, job, attemptNumber, definition);
             var fileInfo = new FileInfo(finalPath);
             job.FileName = fileInfo.Name;
             job.FilePath = fileInfo.FullName;
@@ -267,15 +262,19 @@ public class JobExecutor
     /// modification. An existing file is never silently overwritten - retries get
     /// a unique attempt-suffixed name instead.
     /// </summary>
-    private string PlaceOriginalFile(string producedPath, ExportJob job, int attemptNumber)
+    private string PlaceOriginalFile(string producedPath, ExportJob job, int attemptNumber, ExportDefinition definition)
     {
         var extension = Path.GetExtension(producedPath);
-        if (string.IsNullOrEmpty(extension)) extension = _exportSettings.FileExtension;
+        if (string.IsNullOrEmpty(extension))
+        {
+            var format = definition.Export.Format;
+            extension = string.IsNullOrWhiteSpace(format) ? _exportSettings.FileExtension : "." + format.Trim().TrimStart('.');
+        }
 
-        var directory = Path.Combine(_exportSettings.RootDirectory, $"Mandant_{job.Client}", job.FiscalYear.ToString());
+        var directory = ExportFilename.DirectoryFor(job, _exportSettings.RootDirectory, definition.Export.Directory);
         Directory.CreateDirectory(directory);
 
-        var baseName = $"Mandant_{job.Client}_{job.FiscalYear}_{job.Department}";
+        var baseName = Path.GetFileNameWithoutExtension(ExportFilename.Render(definition.Export.Filename, job));
         var target = Path.Combine(directory, baseName + extension);
         if (File.Exists(target))
             target = Path.Combine(directory, $"{baseName}_attempt{attemptNumber}_{DateTime.UtcNow:HHmmss}{extension}");

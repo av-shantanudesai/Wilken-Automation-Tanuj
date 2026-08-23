@@ -15,16 +15,92 @@ namespace WilkenAutomation.Worker.Wilken;
 /// </summary>
 public partial class WindowsWilkenAutomationService
 {
-    private bool ReplicaIsZugang =>
-        !string.Equals(_job?.Department, "Steuerrecht", StringComparison.OrdinalIgnoreCase);
+    private ExportDefinition ReplicaDefinition =>
+        _catalog.ResolveForJob(_job ?? new ExportJob { Department = "Handelsrecht" });
 
-    private async Task ReplicaOpenReportAsync(CancellationToken ct)
+    // ---- Screen-state layer: screens are detected from multiple anchors, never one signal ----
+
+    private ScreenStateEngine? _screenEngineField;
+
+    private ScreenStateEngine ScreenEngine => _screenEngineField ??= new ScreenStateEngine(new ScreenProbe
+    {
+        ElementExists = id => TryFindByAutomationId(id) is not null,
+        ReadScreenText = ReadTitleAndStatusText
+    }, TimeSpan.FromMilliseconds(_options.PollingIntervalMs));
+
+    private static readonly ScreenDefinition SpoolListScreen = new()
+    {
+        Name = "SPOOL_LIST",
+        Anchors =
+        {
+            ScreenAnchor.ById("Spool_Grid"),
+            ScreenAnchor.ById("Spool_SelectCurrentPrt"),
+            ScreenAnchor.ByText("Druckauswahl")
+        },
+        MinMatches = 2
+    };
+
+    private static readonly ScreenDefinition GitterboxExportScreen = new()
+    {
+        Name = "GITTERBOX_EXPORT",
+        Anchors =
+        {
+            ScreenAnchor.ByText("Gitterbox-Export"),
+            ScreenAnchor.ById("Export_Target_Excel"),
+            ScreenAnchor.ById("Export_Records_All"),
+            ScreenAnchor.ById("Toolbar_Execute")
+        },
+        MinMatches = 3
+    };
+
+    private string ReadTitleAndStatusText()
+    {
+        var parts = new List<string>(2);
+        var title = TryFindByAutomationId("Screen_Title");
+        if (title is not null) parts.Add(title.Name ?? ReadValue(title));
+        var status = TryFindByAutomationId("Status_Text");
+        if (status is not null) parts.Add(status.Name ?? ReadValue(status));
+        return string.Join(" ", parts);
+    }
+
+    /// <summary>
+    /// Run one automation step with explicit Expected State / Timeout / OnFailure,
+    /// using the session-aware wait (dialog handling, session-loss detection).
+    /// </summary>
+    private async Task RunReplicaStepAsync(AutomationStep step, CancellationToken ct)
+    {
+        step.Action();
+        try
+        {
+            await WaitUntilUiAsync(step.ExpectedState, step.Timeout,
+                $"expected state after step '{step.Name}'", ct);
+        }
+        catch (WaitTimeoutException ex)
+        {
+            if (step.OnFailure is not null)
+            {
+                try { await step.OnFailure(ct); }
+                catch { /* diagnostics must not mask the original failure */ }
+            }
+            throw new WilkenAutomationException(
+                step.FailureErrorCode ?? "STEP_EXPECTED_STATE_TIMEOUT",
+                $"Step '{step.Name}' did not reach its expected state within {step.Timeout.TotalSeconds:0}s.",
+                inner: ex);
+        }
+    }
+
+    private async Task ReplicaOpenReportAsync(string? definitionName, CancellationToken ct)
     {
         GuardHealthy();
-        var navId = ReplicaIsZugang ? "Nav_Zugangsliste" : "Nav_Anlagenspiegel";
-        var expected = ReplicaIsZugang
-            ? "Zugangsliste erstellen"
-            : "Anlagenspiegel erstellen";
+        var definition = _catalog.TryGet(definitionName) ?? ReplicaDefinition;
+        if (string.Equals(definition.Type, ExecutorTypes.View, StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(definition.ReplicaNavId))
+        {
+            throw new WilkenAutomationException("VIEW_NOT_MAPPED",
+                $"Export '{definition.Name}' is a VIEW recipe. Run it in Mock mode until real Wilken view controls are inspected.");
+        }
+        var navId = definition.ReplicaNavId ?? (definition.Name == "Anlagenspiegel" ? "Nav_Anlagenspiegel" : "Nav_Zugangsliste");
+        var expected = definition.ReplicaTitleContains ?? definition.DisplayName;
 
         InvokeControl(FindByAutomationId(navId));
         await WaitUntilUiAsync(
@@ -36,7 +112,7 @@ public partial class WindowsWilkenAutomationService
     private async Task ReplicaSetPeriodAsync(int fiscalYear, CancellationToken ct)
     {
         GuardHealthy();
-        if (ReplicaIsZugang)
+        if (!string.Equals(ReplicaDefinition.Name, "Anlagenspiegel", StringComparison.OrdinalIgnoreCase))
         {
             await SetIdValueAsync("Zugang_DateFrom", $"01.01.{fiscalYear}", ct);
             await SetIdValueAsync("Zugang_DateTo", $"31.12.{fiscalYear}", ct);
@@ -57,7 +133,8 @@ public partial class WindowsWilkenAutomationService
     private Task ReplicaSetFachbereichAsync(string department, CancellationToken ct)
     {
         GuardHealthy();
-        var id = ReplicaIsZugang ? "Zugang_Fachbereich" : "Anlage_Fachbereich";
+        var id = string.Equals(ReplicaDefinition.Name, "Anlagenspiegel", StringComparison.OrdinalIgnoreCase)
+            ? "Anlage_Fachbereich" : "Zugang_Fachbereich";
         return SetSelectorOrIdAsync(id, department, ct);
     }
 
@@ -99,9 +176,9 @@ public partial class WindowsWilkenAutomationService
             "Druckauswahl", ct);
         InvokeControl(FindByAutomationId("PrintSelection_Start"));
         await WaitUntilUiAsync(
-            () => TryFindByAutomationId("Spool_Grid") is not null,
+            () => ScreenEngine.Matches(SpoolListScreen),
             TimeSpan.FromSeconds(Math.Max(_options.NavigationTimeoutSeconds, 60)),
-            "spool grid", ct);
+            $"screen '{SpoolListScreen.Name}' ({SpoolListScreen.MinMatches}+ anchors)", ct);
         await ReplicaSelectGeneratedPrtRowAsync(ct);
     }
 
@@ -111,8 +188,9 @@ public partial class WindowsWilkenAutomationService
         if (selectCurrent is not null)
             InvokeControl(selectCurrent);
 
-        var listName = ReplicaIsZugang ? "B024" : "B015";
-        var protocol = ReplicaIsZugang ? "Protokoll: Zugangsliste" : "Protokoll: Anlagenspiegel";
+        var match = ReplicaDefinition.SpoolMatch;
+        var listName = match?.ListName ?? "B024";
+        var protocol = match?.Protocol ?? "Protokoll: Zugangsliste";
         AutomationElement? target = null;
 
         await WaitUntilUiAsync(() =>
@@ -131,6 +209,16 @@ public partial class WindowsWilkenAutomationService
             target = TryFindByAutomationId("Spool_CurrentPrt");
         if (target is null)
             return;
+
+        if (_job is not null)
+        {
+            var rowText = ReadSubtree(target);
+            var created = ParseSpoolTimestamp(rowText);
+            _job.SpoolId = created == DateTime.MinValue
+                ? $"{listName}-{DateTime.UtcNow:yyyyMMddHHmmss}"
+                : $"{listName}-{created:yyyyMMddHHmmss}";
+            _logger.LogInformation("Matched spool {SpoolId} for job {JobId}.", _job.SpoolId, _job.JobId);
+        }
 
         WithoutStealingInput(() =>
         {
@@ -192,6 +280,9 @@ public partial class WindowsWilkenAutomationService
             var created = ParseSpoolTimestamp(text);
             if (created < _runStartedAtUtc.AddMinutes(-2))
                 continue;
+            var key = SpoolRowKey(text, nextText);
+            if (_spoolSnapshot.Contains(key))
+                continue;
             if (created >= bestTime)
             {
                 bestTime = created;
@@ -200,6 +291,32 @@ public partial class WindowsWilkenAutomationService
         }
 
         return best;
+    }
+
+    private void ReplicaCaptureSpoolSnapshot()
+    {
+        _spoolSnapshot.Clear();
+        var grid = TryFindByAutomationId("Spool_Grid");
+        if (grid is null) return;
+        try
+        {
+            var rows = grid.FindAllDescendants(cf => cf.ByClassName("DataGridRow"));
+            if (rows.Length == 0)
+                rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+            for (var i = 0; i < rows.Length; i++)
+            {
+                var text = ReadSubtree(rows[i]);
+                var next = i + 1 < rows.Length ? ReadSubtree(rows[i + 1]) : "";
+                _spoolSnapshot.Add(SpoolRowKey(text, next));
+            }
+        }
+        catch { }
+    }
+
+    private static string SpoolRowKey(string rowText, string nextText)
+    {
+        var created = ParseSpoolTimestamp(rowText);
+        return $"{created:O}|{rowText}|{nextText}";
     }
 
     private static DateTime ParseSpoolTimestamp(string rowText)
@@ -227,11 +344,22 @@ public partial class WindowsWilkenAutomationService
             .Select(f => (Path: f, Time: File.GetLastWriteTimeUtc(f)))
             .ToList();
 
-        InvokeControl(FindByAutomationId("Spool_OpenAdvancedExport"));
-        await WaitUntilUiAsync(
-            () => ScreenTitleContains("Gitterbox-Export"),
-            TimeSpan.FromSeconds(Math.Max(_options.NavigationTimeoutSeconds, 45)),
-            "System - Gitterbox-Export after Export → Erweitert", ct);
+        await RunReplicaStepAsync(new AutomationStep
+        {
+            Name = "Export → Erweitert (open Gitterbox-Export)",
+            Action = () => InvokeControl(FindByAutomationId("Spool_OpenAdvancedExport")),
+            ExpectedState = () => ScreenEngine.Matches(GitterboxExportScreen),
+            Timeout = TimeSpan.FromSeconds(Math.Max(_options.NavigationTimeoutSeconds, 45)),
+            FailureErrorCode = "EXPORT_SCREEN_NOT_REACHED",
+            OnFailure = _ =>
+            {
+                var detected = ScreenEngine.Detect(new[] { SpoolListScreen, GitterboxExportScreen });
+                _logger.LogWarning(
+                    "Gitterbox-Export screen not reached. Currently detected screen: {Screen} (confidence {Confidence:P0}).",
+                    detected.Screen?.Name ?? "<unknown>", detected.Confidence);
+                return Task.CompletedTask;
+            }
+        }, ct);
 
         var formatId = ReplicaFormatRadioId();
         SelectRadio(formatId);
@@ -281,8 +409,45 @@ public partial class WindowsWilkenAutomationService
             throw new WilkenAutomationException("DOWNLOAD_TIMEOUT",
                 "Gitterbox export finished in the UI but no CTLP12.xlsx was found in Downloads.");
 
+        // File appears -> size stops changing -> file is unlocked -> only then validate.
+        _lastObservedExportSize = -1;
+        await WaitUntilUiAsync(
+            () => FileIsStableAndUnlocked(produced!),
+            TimeSpan.FromMinutes(Math.Max(1, _options.ExportTimeoutMinutes)),
+            "export file size stable and unlocked", ct);
+
         _logger.LogInformation("Replica export produced {Path} for {JobId}.", produced, job.JobId);
         return produced!;
+    }
+
+    private long _lastObservedExportSize = -1;
+
+    /// <summary>
+    /// True only when the file has kept the same non-zero size across two polls
+    /// and can be opened exclusively (writer has released it).
+    /// </summary>
+    private bool FileIsStableAndUnlocked(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length == 0)
+            {
+                _lastObservedExportSize = -1;
+                return false;
+            }
+            if (info.Length != _lastObservedExportSize)
+            {
+                _lastObservedExportSize = info.Length;
+                return false;
+            }
+            using var _ = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     private async Task SetIdValueAsync(string automationId, string value, CancellationToken ct)

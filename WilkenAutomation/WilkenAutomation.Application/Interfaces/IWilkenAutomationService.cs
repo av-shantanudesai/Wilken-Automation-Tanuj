@@ -42,6 +42,13 @@ public interface IWilkenAutomationService
     Task WaitForReportReadyAsync(CancellationToken cancellationToken);
     Task OpenSpoolAsync(CancellationToken cancellationToken);
 
+    /// <summary>Snapshot spool identities before starting a SPOOL evaluation.</summary>
+    Task CaptureSpoolSnapshotAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>Open the screen for the named export definition. Defaults to the asset-accounting entry.</summary>
+    Task OpenExportDefinitionAsync(string definitionName, CancellationToken cancellationToken) =>
+        OpenAssetAccountingAsync(cancellationToken);
+
     /// <summary>Exports the report and returns the path of the produced (temporary) file.</summary>
     Task<string> ExportAsync(ExportJob job, CancellationToken cancellationToken);
 

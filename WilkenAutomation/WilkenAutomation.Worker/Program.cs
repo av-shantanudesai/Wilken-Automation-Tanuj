@@ -2,6 +2,7 @@ using WilkenAutomation.Application.Configuration;
 using WilkenAutomation.Application.Enums;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Services;
+using WilkenAutomation.Application.Services.Exporting;
 using WilkenAutomation.Application.Validators;
 using WilkenAutomation.Infrastructure.Configuration;
 using WilkenAutomation.Infrastructure.Database;
@@ -65,6 +66,9 @@ builder.Services.AddSingleton(new JwtTokenService(jwtOptions));
 builder.Services.AddWilkenInfrastructure(builder.Configuration);
 
 builder.Services.AddSingleton<IWilkenCredentialProvider, ConfigurationCredentialProvider>();
+builder.Services.AddSingleton(ExportDefinitionCatalog.Load(builder.Environment.ContentRootPath));
+builder.Services.AddSingleton<IExportExecutor, SpoolExecutor>();
+builder.Services.AddSingleton<IExportExecutor, ViewExecutor>();
 builder.Services.AddSingleton<IExportFileValidator, ExportFileValidator>();
 builder.Services.AddSingleton<IRealtimeNotifier, SignalRNotifier>();
 builder.Services.AddSingleton(sp =>

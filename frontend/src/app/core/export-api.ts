@@ -3,6 +3,7 @@ import {
   CreateRunRequest,
   Job,
   JobDetail,
+  ExportDefinitionInfo,
   JobQuery,
   LogEntry,
   PagedResult,
@@ -27,4 +28,5 @@ export interface ExportApi {
   getJob(id: string): Promise<JobDetail>;
   requeueJob(id: string): Promise<Job>;
   getLogs(runId?: string, jobId?: string, limit?: number): Promise<LogEntry[]>;
+  listExportDefinitions(): Promise<ExportDefinitionInfo[]>;
 }

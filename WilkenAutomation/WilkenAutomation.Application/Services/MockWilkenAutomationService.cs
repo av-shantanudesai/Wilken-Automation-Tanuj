@@ -63,6 +63,13 @@ public class MockWilkenAutomationService : IWilkenAutomationService
         await SimulatedAction("OpenAssetAccounting", ct);
     }
 
+    public Task CaptureSpoolSnapshotAsync(CancellationToken ct) => Task.CompletedTask;
+
+    public async Task OpenExportDefinitionAsync(string definitionName, CancellationToken ct)
+    {
+        await SimulatedAction($"OpenExport:{definitionName}", ct);
+    }
+
     public async Task SetFiscalYearAsync(int fiscalYear, CancellationToken ct)
     {
         await SimulatedAction("SetFiscalYear", ct);
@@ -90,6 +97,8 @@ public class MockWilkenAutomationService : IWilkenAutomationService
     public async Task OpenSpoolAsync(CancellationToken ct)
     {
         await SimulatedAction("OpenSpool", ct);
+        if (_job is not null)
+            _job.SpoolId = $"SPL-{_job.ExportDefinition}-{_job.Client}-{Guid.NewGuid():N}"[..32];
     }
 
     public async Task<string> ExportAsync(ExportJob job, CancellationToken ct)
@@ -102,8 +111,11 @@ public class MockWilkenAutomationService : IWilkenAutomationService
         var sb = new StringBuilder();
         sb.AppendLine($"{ExportFileValidator.ReportMarker} V2.4");
         sb.AppendLine($"Client;{job.Client}");
-        sb.AppendLine($"FiscalYear;{job.FiscalYear}");
-        sb.AppendLine($"Department;{job.Department}");
+        if (job.FiscalYear > 0) sb.AppendLine($"FiscalYear;{job.FiscalYear}");
+        if (!string.IsNullOrWhiteSpace(job.Department)) sb.AppendLine($"Department;{job.Department}");
+        if (!string.IsNullOrWhiteSpace(job.ExportDefinition)) sb.AppendLine($"ExportDefinition;{job.ExportDefinition}");
+        if (!string.IsNullOrWhiteSpace(job.Period)) sb.AppendLine($"Period;{job.Period}");
+        if (!string.IsNullOrWhiteSpace(job.AccountingLaw)) sb.AppendLine($"AccountingLaw;{job.AccountingLaw}");
         sb.AppendLine($"RecordCount;{recordCount}");
         sb.AppendLine($"GeneratedAt;{DateTime.UtcNow:O}");
         sb.AppendLine(ExportFileValidator.DataMarker);

@@ -12,6 +12,7 @@ using WilkenAutomation.Api.Services;
 using WilkenAutomation.Application.Configuration;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Services;
+using WilkenAutomation.Application.Services.Exporting;
 using WilkenAutomation.Infrastructure.Configuration;
 using WilkenAutomation.Infrastructure.Database;
 
@@ -127,6 +128,9 @@ builder.Services.AddRateLimiter(options =>
 
 builder.Services.AddSingleton(builder.Configuration.GetSection(RunDefaults.Section).Get<RunDefaults>() ?? new RunDefaults());
 builder.Services.AddSingleton(builder.Configuration.GetSection(ExportSettings.Section).Get<ExportSettings>() ?? new ExportSettings());
+builder.Services.AddSingleton(ExportDefinitionCatalog.Load(builder.Environment.ContentRootPath));
+builder.Services.AddSingleton<IExportExecutor, SpoolExecutor>();
+builder.Services.AddSingleton<IExportExecutor, ViewExecutor>();
 builder.Services.AddScoped<JobGeneratorService>();
 builder.Services.AddScoped<RunStatisticsService>();
 builder.Services.AddSingleton<WorkerStatusRegistry>();

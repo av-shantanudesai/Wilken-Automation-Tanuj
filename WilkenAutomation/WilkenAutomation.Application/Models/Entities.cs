@@ -74,6 +74,12 @@ public class ExportJob
     public int FiscalYear { get; set; }
     public string Department { get; set; } = default!;
     public string DepartmentCode { get; set; } = default!;
+    public string ExportDefinition { get; set; } = "";
+    public string ExecutorType { get; set; } = "SPOOL";
+    public string Period { get; set; } = "";
+    public string AccountingLaw { get; set; } = "";
+    public string Company { get; set; } = "";
+    public string? SpoolId { get; set; }
     public int OrderIndex { get; set; }
 
     public JobStatus Status { get; set; } = JobStatus.Pending;

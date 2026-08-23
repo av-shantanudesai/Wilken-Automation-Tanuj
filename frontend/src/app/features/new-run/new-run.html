@@ -1,7 +1,7 @@
 <div class="page-header">
   <h1>New Export Run</h1>
   <p class="subtitle">
-    Expected jobs are calculated dynamically: Clients × Fiscal Years × Departments.
+    Jobs are generated from the selected export definitions and only the dimensions each recipe requires.
   </p>
 </div>
 
@@ -34,6 +34,18 @@
         <label>Max attempts per job</label>
         <input type="number" min="1" max="10" [ngModel]="maxAttempts()" (ngModelChange)="maxAttempts.set(+$event)" />
       </div>
+    </div>
+
+    <h2>Export definitions</h2>
+    <div class="check-row">
+      @for (def of definitions(); track def.name) {
+        <label class="check">
+          <input type="checkbox"
+                 [ngModel]="selectedExports().includes(def.name)"
+                 (ngModelChange)="toggleExport(def.name, $event)" />
+          {{ def.displayName }} ({{ def.type }} / {{ def.format }})
+        </label>
+      }
     </div>
 
     <div class="check-row">
@@ -86,12 +98,13 @@
     <div class="calc">
       <span>{{ clientCount() }}</span> clients ×
       <span>{{ yearCount() }}</span> years ×
-      <span>{{ departmentCount() }}</span> departments
+      <span>{{ departmentCount() }}</span> laws ×
+      <span>{{ selectedExports().length }}</span> exports
     </div>
     <div class="total" [class.err-text]="expectedJobs() === 0">{{ expectedJobs() }}</div>
     <p class="dim">
-      Every job = one client + one fiscal year + one department.
-      Default order: Client → Fiscal Year → Commercial Law → Tax Law.
+      Each selected recipe expands only its required dimensions (for example Master Data = client only).
+      SPOOL recipes still export one correlated spool row per job.
     </p>
     <button class="primary create-btn" (click)="create()" [disabled]="busy() || expectedJobs() === 0">
       {{ busy() ? 'Generating…' : 'Generate ' + expectedJobs() + ' jobs' }}

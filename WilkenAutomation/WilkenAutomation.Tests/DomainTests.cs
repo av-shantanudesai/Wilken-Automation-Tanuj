@@ -44,6 +44,29 @@ public class JobGeneratorTests : IDisposable
     }
 
     [Fact]
+    public async Task MasterData_Generates_ClientOnly_Jobs()
+    {
+        var generator = _ctx.Generator();
+        var config = generator.BuildConfig(new CreateRunRequestDto
+        {
+            ClientCount = 2,
+            YearFrom = 2003,
+            YearTo = 2004,
+            ExportDefinitions = new List<string> { "MasterData" }
+        });
+        Assert.Equal(2, config.ExpectedJobs);
+        var run = await generator.GenerateRunAsync(config, null, false, CancellationToken.None, 1);
+        var jobs = await _ctx.Jobs.GetAllForRunAsync(run.RunId, CancellationToken.None);
+        Assert.Equal(2, jobs.Count);
+        Assert.All(jobs, j =>
+        {
+            Assert.Equal("MasterData", j.ExportDefinition);
+            Assert.Equal("VIEW", j.ExecutorType);
+            Assert.Equal(0, j.FiscalYear);
+        });
+    }
+
+    [Fact]
     public async Task DuplicateInputs_DoNotCreateDuplicateJobs()
     {
         var generator = _ctx.Generator();
@@ -219,6 +242,26 @@ public class ChecksumTests : IDisposable
     }
 
     public void Dispose() => _ctx.Dispose();
+}
+
+public class ExportFilenameTests
+{
+    [Fact]
+    public void Renders_Template_Skipping_Empty_Tokens()
+    {
+        var name = ExportFilename.Render(
+            "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{PERIOD}_{ACCOUNTINGLAW}_{TIMESTAMP}.csv",
+            new ExportJob
+            {
+                Client = "001",
+                ExportDefinition = "MasterData",
+                FiscalYear = 0,
+                Period = "",
+                AccountingLaw = ""
+            },
+            new DateTime(2026, 8, 23, 10, 0, 0, DateTimeKind.Utc));
+        Assert.Equal("WILKEN_001_MasterData_20260823100000.csv", name);
+    }
 }
 
 public class RuntimeStatisticsTests

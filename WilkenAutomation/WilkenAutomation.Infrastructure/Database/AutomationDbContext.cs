@@ -56,7 +56,7 @@ public class AutomationDbContext : DbContext
             e.ToTable("ExportJobs");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.JobId).IsUnique();
-            e.HasIndex(x => new { x.RunId, x.Client, x.FiscalYear, x.Department }).IsUnique();
+            e.HasIndex(x => new { x.RunId, x.ExportDefinition, x.Client, x.FiscalYear, x.Period, x.AccountingLaw }).IsUnique();
             e.HasIndex(x => new { x.RunId, x.Status, x.OrderIndex });
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.Client);
@@ -67,6 +67,12 @@ public class AutomationDbContext : DbContext
             e.Property(x => x.Client).HasMaxLength(32);
             e.Property(x => x.Department).HasMaxLength(64);
             e.Property(x => x.DepartmentCode).HasMaxLength(8);
+            e.Property(x => x.ExportDefinition).HasMaxLength(64);
+            e.Property(x => x.ExecutorType).HasMaxLength(16);
+            e.Property(x => x.Period).HasMaxLength(32);
+            e.Property(x => x.AccountingLaw).HasMaxLength(64);
+            e.Property(x => x.Company).HasMaxLength(64);
+            e.Property(x => x.SpoolId).HasMaxLength(96);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.ValidationStatus).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.ApplicationState).HasMaxLength(40);

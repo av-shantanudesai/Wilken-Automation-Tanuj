@@ -59,20 +59,39 @@ public class ExportFileValidator : IExportFileValidator
             .Where(p => p.Length == 2)
             .ToDictionary(p => p[0].Trim(), p => p[1].Trim(), StringComparer.OrdinalIgnoreCase);
 
-        if (!meta.TryGetValue("Client", out var client) || client != job.Client)
+        if (!string.IsNullOrWhiteSpace(job.Client)
+            && (!meta.TryGetValue("Client", out var client) || client != job.Client))
             return new FileValidationResult(ValidationStatus.Invalid, null,
                 $"Client mismatch: file contains '{meta.GetValueOrDefault("Client", "<missing>")}', expected '{job.Client}'.");
-        if (!meta.TryGetValue("FiscalYear", out var yearText) || yearText != job.FiscalYear.ToString())
+        if (job.FiscalYear > 0
+            && (!meta.TryGetValue("FiscalYear", out var yearText) || yearText != job.FiscalYear.ToString()))
             return new FileValidationResult(ValidationStatus.Invalid, null,
                 $"Fiscal year mismatch: file contains '{meta.GetValueOrDefault("FiscalYear", "<missing>")}', expected '{job.FiscalYear}'.");
-        if (!meta.TryGetValue("Department", out var department) || department != job.Department)
+        if (!string.IsNullOrWhiteSpace(job.Department)
+            && (!meta.TryGetValue("Department", out var department) || department != job.Department))
             return new FileValidationResult(ValidationStatus.Invalid, null,
                 $"Department mismatch: file contains '{meta.GetValueOrDefault("Department", "<missing>")}', expected '{job.Department}'.");
+        if (!string.IsNullOrWhiteSpace(job.ExportDefinition) && meta.TryGetValue("ExportDefinition", out var exportName)
+            && !string.Equals(exportName, job.ExportDefinition, StringComparison.OrdinalIgnoreCase))
+            return new FileValidationResult(ValidationStatus.Invalid, null,
+                $"Export definition mismatch: file contains '{exportName}', expected '{job.ExportDefinition}'.");
+        if (!string.IsNullOrWhiteSpace(job.Period) && meta.TryGetValue("Period", out var period)
+            && !string.Equals(period, job.Period, StringComparison.OrdinalIgnoreCase))
+            return new FileValidationResult(ValidationStatus.Invalid, null,
+                $"Period mismatch: file contains '{period}', expected '{job.Period}'.");
+        if (!string.IsNullOrWhiteSpace(job.AccountingLaw) && meta.TryGetValue("AccountingLaw", out var law)
+            && !string.Equals(law, job.AccountingLaw, StringComparison.OrdinalIgnoreCase))
+            return new FileValidationResult(ValidationStatus.Invalid, null,
+                $"Accounting law mismatch: file contains '{law}', expected '{job.AccountingLaw}'.");
 
         var dataIndex = Array.IndexOf(lines, DataMarker);
         var endIndex = Array.IndexOf(lines, EndMarker);
         if (dataIndex < 0 || endIndex < dataIndex)
             return new FileValidationResult(ValidationStatus.Invalid, null, "Data section missing or malformed.");
+
+        if (dataIndex + 1 >= endIndex || string.IsNullOrWhiteSpace(lines[dataIndex + 1]))
+            return new FileValidationResult(ValidationStatus.Invalid, null,
+                "Expected column header row is missing after the data marker.");
 
         var recordCount = Math.Max(0, endIndex - dataIndex - 2);
 

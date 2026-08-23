@@ -45,6 +45,11 @@ public class JobDto
     public int FiscalYear { get; set; }
     public string Department { get; set; } = default!;
     public string DepartmentCode { get; set; } = default!;
+    public string ExportDefinition { get; set; } = "";
+    public string ExecutorType { get; set; } = "";
+    public string Period { get; set; } = "";
+    public string AccountingLaw { get; set; } = "";
+    public string? SpoolId { get; set; }
     public int OrderIndex { get; set; }
     public JobStatus Status { get; set; }
     public int AttemptCount { get; set; }
@@ -134,6 +139,16 @@ public class JobDetailDto
     public List<LogEntryDto> Logs { get; set; } = new();
 }
 
+public class ExportDefinitionDto
+{
+    public string Name { get; set; } = "";
+    public string Type { get; set; } = "";
+    public string Module { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public List<string> Requires { get; set; } = new();
+    public string Format { get; set; } = "";
+}
+
 /// <summary>Run creation request, shape-compatible with the existing frontend.</summary>
 public class CreateRunRequestDto
 {
@@ -143,6 +158,8 @@ public class CreateRunRequestDto
     public int? YearFrom { get; set; }
     public int? YearTo { get; set; }
     public List<string>? Departments { get; set; }
+    public List<string>? Periods { get; set; }
+    public List<string>? ExportDefinitions { get; set; }
     public string? JobOrder { get; set; }
     public int? MaxAttempts { get; set; }
     public bool? EnableContentValidation { get; set; }
@@ -223,6 +240,11 @@ public static class DtoMapper
         FiscalYear = job.FiscalYear,
         Department = job.Department,
         DepartmentCode = job.DepartmentCode,
+        ExportDefinition = job.ExportDefinition,
+        ExecutorType = job.ExecutorType,
+        Period = job.Period,
+        AccountingLaw = job.AccountingLaw,
+        SpoolId = job.SpoolId,
         OrderIndex = job.OrderIndex,
         Status = job.Status,
         AttemptCount = job.AttemptCount,

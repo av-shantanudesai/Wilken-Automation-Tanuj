@@ -40,6 +40,7 @@
         <th>Job ID</th>
         <th>Client</th>
         <th>Year</th>
+        <th>Export</th>
         <th>Department</th>
         <th>Status</th>
         <th>Att.</th>
@@ -56,6 +57,7 @@
           <td class="mono">{{ job.id }}</td>
           <td>{{ job.client }}</td>
           <td>{{ job.fiscalYear }}</td>
+          <td>{{ job.exportDefinition || '–' }}</td>
           <td>{{ job.department }}</td>
           <td><span class="badge {{ job.status }}">{{ job.status }}</span></td>
           <td>{{ job.attemptCount }}</td>
@@ -70,7 +72,7 @@
         </tr>
         @if (detail()?.job?.id === job.id) {
           <tr class="detail-row">
-            <td colspan="11">
+            <td colspan="12">
               <div class="detail">
                 <div class="detail-grid">
                   <div><label>File</label><span class="mono">{{ job.filePath ?? '–' }}</span></div>

@@ -8,6 +8,7 @@ import {
   CreateRunRequest,
   Job,
   JobDetail,
+  ExportDefinitionInfo,
   JobQuery,
   LogEntry,
   PagedResult,
@@ -73,5 +74,9 @@ export class HttpExportApi implements ExportApi {
     if (runId) params = params.set('runId', runId);
     if (jobId) params = params.set('jobId', jobId);
     return firstValueFrom(this.http.get<LogEntry[]>(`${this.base}/logs`, { params }));
+  }
+
+  listExportDefinitions(): Promise<ExportDefinitionInfo[]> {
+    return firstValueFrom(this.http.get<ExportDefinitionInfo[]>(`${this.base}/export-definitions`));
   }
 }

@@ -1,0 +1,84 @@
+{
+  "definitions": [
+    {
+      "name": "Zugangsliste",
+      "type": "SPOOL",
+      "module": "Asset Accounting",
+      "displayName": "Zugangsliste",
+      "requires": [ "CLIENT", "YEAR", "ACCOUNTING_LAW" ],
+      "defaults": { "ACCOUNTING_LAW": "Handelsrecht" },
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "SPOOL_CREATED"
+      },
+      "export": {
+        "format": "XLSX",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx"
+      },
+      "spoolMatch": {
+        "listName": "B024",
+        "extension": "PRT",
+        "protocol": "Protokoll: Zugangsliste",
+        "user": "BHL"
+      },
+      "replicaNavId": "Nav_Zugangsliste",
+      "replicaTitleContains": "Zugangsliste erstellen"
+    },
+    {
+      "name": "Anlagenspiegel",
+      "type": "SPOOL",
+      "module": "Asset Accounting",
+      "displayName": "Anlagenspiegel nach Anlagen",
+      "requires": [ "CLIENT", "YEAR", "ACCOUNTING_LAW" ],
+      "defaults": { "ACCOUNTING_LAW": "Steuerrecht" },
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "SPOOL_CREATED"
+      },
+      "export": {
+        "format": "XLSX",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx"
+      },
+      "spoolMatch": {
+        "listName": "B015",
+        "extension": "PRT",
+        "protocol": "Protokoll: Anlagenspiegel",
+        "user": "BHL"
+      },
+      "replicaNavId": "Nav_Anlagenspiegel",
+      "replicaTitleContains": "Anlagenspiegel erstellen"
+    },
+    {
+      "name": "MasterData",
+      "type": "VIEW",
+      "module": "Asset Accounting",
+      "displayName": "Asset master data",
+      "requires": [ "CLIENT" ],
+      "defaults": {},
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "DATA_READY"
+      },
+      "export": {
+        "format": "CSV",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{TIMESTAMP}.csv"
+      }
+    },
+    {
+      "name": "Bookings",
+      "type": "VIEW",
+      "module": "Asset Accounting",
+      "displayName": "Bookings by period",
+      "requires": [ "CLIENT", "YEAR", "PERIOD" ],
+      "defaults": { "PERIOD": "01-12" },
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "DATA_READY"
+      },
+      "export": {
+        "format": "CSV",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{PERIOD}_{TIMESTAMP}.csv"
+      }
+    }
+  ]
+}

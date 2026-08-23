@@ -30,6 +30,8 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     private ExportJob? _job;
     private DateTime _runStartedAtUtc;
+    private readonly HashSet<string> _spoolSnapshot = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ExportDefinitionCatalog _catalog;
 
     public WilkenSessionStatus SessionStatus { get; private set; } = WilkenSessionStatus.NotRunning;
 
@@ -41,11 +43,13 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         WilkenOptions options,
         IWilkenCredentialProvider credentials,
         ExportSettings exportSettings,
+        ExportDefinitionCatalog catalog,
         ILogger<WindowsWilkenAutomationService> logger)
     {
         _options = options;
         _credentials = credentials;
         _exportSettings = exportSettings;
+        _catalog = catalog;
         _logger = logger;
     }
 
@@ -138,11 +142,29 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         await SetSelectorValueAsync("ClientField", client, ct);
     }
 
+    public Task CaptureSpoolSnapshotAsync(CancellationToken ct)
+    {
+        if (IsReplica)
+            ReplicaCaptureSpoolSnapshot();
+        return Task.CompletedTask;
+    }
+
+    public async Task OpenExportDefinitionAsync(string definitionName, CancellationToken ct)
+    {
+        if (IsReplica)
+        {
+            await ReplicaOpenReportAsync(definitionName, ct);
+            return;
+        }
+
+        await OpenAssetAccountingAsync(ct);
+    }
+
     public async Task OpenAssetAccountingAsync(CancellationToken ct)
     {
         if (IsReplica)
         {
-            await ReplicaOpenReportAsync(ct);
+            await ReplicaOpenReportAsync(_job?.ExportDefinition, ct);
             return;
         }
         GuardHealthy();
