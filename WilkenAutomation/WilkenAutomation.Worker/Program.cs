@@ -28,6 +28,8 @@ var forceDesktopTest = args.Any(a => a.Equals("--desktop-test", StringComparison
 var hostArgs = args.Where(a => !a.Equals("--desktop-test", StringComparison.OrdinalIgnoreCase)).ToArray();
 
 var builder = Host.CreateApplicationBuilder(hostArgs);
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+builder.Configuration.AddEnvironmentVariables();
 if (forceDesktopTest)
 {
     builder.Configuration.AddJsonFile("appsettings.DesktopTest.json", optional: true, reloadOnChange: false);

@@ -18,9 +18,7 @@ public static class InfrastructureRegistration
     public static IServiceCollection AddWilkenInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         var provider = configuration["Database:Provider"] ?? "MySql";
-        var connectionString = configuration.GetConnectionString("Default")
-            ?? configuration["Database:ConnectionString"]
-            ?? throw new InvalidOperationException("Database connection string not configured.");
+        var connectionString = DatabaseConnection.Resolve(configuration);
 
         services.AddDbContext<AutomationDbContext>(options =>
         {

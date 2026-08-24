@@ -21,7 +21,8 @@ public class AutomationDbContext : DbContext
             e.ToTable("AppUsers");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Email).IsUnique();
-            e.Property(x => x.Email).HasMaxLength(256);
+            // utf8mb4 unique keys: 191*4=764 bytes (fits InnoDB 767 and MyISAM 1000).
+            e.Property(x => x.Email).HasMaxLength(191);
             e.Property(x => x.DisplayName).HasMaxLength(128);
             e.Property(x => x.PasswordHash).HasMaxLength(256);
         });
@@ -110,5 +111,12 @@ public class AutomationDbContext : DbContext
             e.Property(x => x.ApplicationState).HasMaxLength(40);
             e.Property(x => x.ErrorCode).HasMaxLength(64);
         });
+
+        var tableTypes = modelBuilder.Model.GetEntityTypes()
+            .Where(t => t.ClrType is not null && !t.IsOwned())
+            .Select(t => t.ClrType)
+            .ToList();
+        foreach (var type in tableTypes)
+            modelBuilder.Entity(type).HasTableOption("ENGINE", "InnoDB");
     }
 }

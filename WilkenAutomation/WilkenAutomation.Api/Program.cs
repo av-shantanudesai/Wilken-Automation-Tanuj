@@ -17,6 +17,8 @@ using WilkenAutomation.Infrastructure.Configuration;
 using WilkenAutomation.Infrastructure.Database;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddControllers(options => options.Filters.Add<AuthExceptionFilter>())
     .AddJsonOptions(options =>

@@ -20,6 +20,9 @@ frontend/node_modules/
 frontend/dist/
 frontend/.angular/
 
+# Local DB secrets (password). Prefer WILKEN_DB_PASSWORD / WILKEN_DB_CONNECTION in CI.
+**/appsettings.Local.json
+
 # IDE
 .vs/
 *.user

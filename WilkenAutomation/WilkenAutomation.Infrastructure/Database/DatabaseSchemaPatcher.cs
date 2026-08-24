@@ -12,6 +12,9 @@ public static class DatabaseSchemaPatcher
 {
     public static async Task ApplyAsync(AutomationDbContext db, ILogger logger, CancellationToken ct = default)
     {
+        if (db.Database.IsMySql())
+            await DropIncompleteFirstCreateAsync(db, logger, ct);
+
         await db.Database.EnsureCreatedAsync(ct);
         if (!db.Database.IsRelational()) return;
 
@@ -28,18 +31,39 @@ public static class DatabaseSchemaPatcher
         }
     }
 
+    /// <summary>
+    /// A failed first EnsureCreated can leave AppUsers without AutomationRuns.
+    /// EnsureCreated then skips the rest of the schema. Drop the leftover tables.
+    /// </summary>
+    private static async Task DropIncompleteFirstCreateAsync(AutomationDbContext db, ILogger logger, CancellationToken ct)
+    {
+        var runs = await ScalarAsync(db,
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'AutomationRuns'",
+            ct);
+        var users = await ScalarAsync(db,
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'AppUsers'",
+            ct);
+        if (users == 0 || runs > 0) return;
+
+        logger.LogWarning("Incomplete schema from a failed first create; dropping leftover AppUsers/RefreshTokens.");
+        await db.Database.ExecuteSqlRawAsync("SET FOREIGN_KEY_CHECKS=0", ct);
+        await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS RefreshTokens", ct);
+        await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS AppUsers", ct);
+        await db.Database.ExecuteSqlRawAsync("SET FOREIGN_KEY_CHECKS=1", ct);
+    }
+
     private static async Task PatchMySqlAsync(AutomationDbContext db, CancellationToken ct)
     {
         await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS AppUsers (
                 Id bigint NOT NULL AUTO_INCREMENT,
-                Email varchar(256) NOT NULL,
+                Email varchar(191) NOT NULL,
                 DisplayName varchar(128) NOT NULL,
                 PasswordHash varchar(256) NOT NULL,
                 CreatedAt datetime(6) NOT NULL,
                 PRIMARY KEY (Id),
                 UNIQUE KEY IX_AppUsers_Email (Email)
-            )
+            ) ENGINE=InnoDB
             """, ct);
 
         await db.Database.ExecuteSqlRawAsync("""
@@ -56,7 +80,7 @@ public static class DatabaseSchemaPatcher
                 PRIMARY KEY (Id),
                 UNIQUE KEY IX_RefreshTokens_TokenHash (TokenHash),
                 KEY IX_RefreshTokens_UserId_FamilyId (UserId, FamilyId)
-            )
+            ) ENGINE=InnoDB
             """, ct);
 
         var hasUserId = await ScalarAsync(db,
