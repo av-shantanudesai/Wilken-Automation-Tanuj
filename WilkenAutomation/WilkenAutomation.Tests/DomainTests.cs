@@ -344,3 +344,44 @@ public class SignalREventsTests
         Assert.False(SignalREvents.IsKnown(null));
     }
 }
+
+public class WilkenSelectorCatalogTests
+{
+    [Fact]
+    public void MissingRequired_Reports_Unmapped_Core_Controls()
+    {
+        var missing = WilkenSelectorCatalog.MissingRequired(new Dictionary<string, string>
+        {
+            ["ClientField"] = "Name:Mandant",
+            ["ExecuteButton"] = ""
+        });
+        Assert.Contains("FiscalYearField", missing);
+        Assert.Contains("DepartmentField", missing);
+        Assert.Contains("ExecuteButton", missing);
+        Assert.Contains("ExportButton", missing);
+        Assert.DoesNotContain("ClientField", missing);
+    }
+
+    [Fact]
+    public void MissingRequired_Empty_When_Core_Selectors_Mapped()
+    {
+        var mapped = WilkenSelectorCatalog.RequiredForAutomation
+            .ToDictionary(k => k, k => "Name:" + k);
+        Assert.Empty(WilkenSelectorCatalog.MissingRequired(mapped));
+    }
+
+    [Fact]
+    public void RemoteDisplay_Detects_Citrix_And_Browser_Processes()
+    {
+        Assert.True(WilkenSessionPolicy.IsRemoteDisplayProcess("wfica32"));
+        Assert.True(WilkenSessionPolicy.IsRemoteDisplayProcess("msedge"));
+        Assert.False(WilkenSessionPolicy.IsRemoteDisplayProcess("WilkenCS2"));
+    }
+
+    [Fact]
+    public void JavaWindow_Detected_From_Awt_Class()
+    {
+        Assert.True(WilkenSessionPolicy.IsLikelyJavaWindow("SunAwtFrame", "Win32"));
+        Assert.False(WilkenSessionPolicy.IsLikelyJavaWindow("HwndWrapper", "WPF"));
+    }
+}

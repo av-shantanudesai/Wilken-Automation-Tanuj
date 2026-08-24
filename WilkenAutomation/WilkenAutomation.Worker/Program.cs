@@ -13,8 +13,10 @@ using WilkenAutomation.Worker.Worker;
 
 if (args.Length >= 1 && args[0] == "--inspect")
 {
-    var title = args.Length >= 2 ? args[1] : "Wilken";
-    var dump = UiaTreeDumper.DumpWindowByTitle(title);
+    var rest = args.Skip(1).ToArray();
+    var dump = rest.Length == 0 || rest[0] is "--list" or "-l"
+        ? UiaTreeDumper.ListTopLevelWindows()
+        : UiaTreeDumper.DumpWindowByTitle(rest[0]);
     var outputPath = Path.GetFullPath($"wilken-controls-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
     File.WriteAllText(outputPath, dump);
     Console.WriteLine(dump);
@@ -105,7 +107,11 @@ switch (workerSettings.AutomationMode)
         Console.WriteLine("Handelsrecht → Zugangsliste; Steuerrecht → Anlagenspiegel. Exports are XLSX.");
         break;
     case AutomationMode.Wilken:
-        Console.WriteLine("MODE: Wilken — real Wilken CS/2 desktop automation.");
+        Console.WriteLine("MODE: Wilken — attach-only real desktop (Citrix).");
+        Console.WriteLine("  1. Open Test Environment from Citrix Workspace and log in yourself.");
+        Console.WriteLine("  2. Run this worker inside that desktop (same Windows session as Wilken).");
+        Console.WriteLine("  3. Inspect first: dotnet run --project WilkenAutomation.Worker -- --inspect");
+        Console.WriteLine("  4. Map Wilken:Selectors from the dump, then start a run. Worker never launches or logs in.");
         break;
     default:
         Console.WriteLine("MODE: Mock — NO desktop window. Jobs are simulated.");
@@ -129,6 +135,9 @@ static void ApplyDesktopTestDefaults(WilkenOptions options)
 {
     options.MainWindowTitle = "Wilken_CS/2_Finanzmanagement";
     options.ProcessName = "WilkenCs2ReplicaMock";
+    options.AttachOnly = false;
+    options.SkipLogin = true;
+    options.RequireInspectedSelectors = false;
     if (options.PollingIntervalMs <= 0) options.PollingIntervalMs = 400;
 
     void Set(string key, string value) => options.Selectors[key] = value;

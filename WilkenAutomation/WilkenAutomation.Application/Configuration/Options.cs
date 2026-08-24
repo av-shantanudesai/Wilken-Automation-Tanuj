@@ -19,8 +19,26 @@ public class WilkenOptions
     public int PollingIntervalMs { get; set; } = 500;
 
     /// <summary>
+    /// Real Citrix test: never launch or kill Wilken. The user opens the published
+    /// desktop from Citrix Workspace, logs in, then the worker only attaches.
+    /// Replica/DesktopTest sets this false so it can still start the dummy exe.
+    /// </summary>
+    public bool AttachOnly { get; set; } = true;
+
+    /// <summary>
+    /// Real Citrix test: the user logs in manually. The worker never types credentials.
+    /// </summary>
+    public bool SkipLogin { get; set; } = true;
+
+    /// <summary>
+    /// Real Wilken UI stack is unknown (WinForms, WPF, Win32, Java, ...).
+    /// Refuse to automate until core selectors were mapped from an --inspect dump.
+    /// </summary>
+    public bool RequireInspectedSelectors { get; set; } = true;
+
+    /// <summary>
     /// UIA selectors discovered during the control-inspection POC.
-    /// Format per entry: "AutomationId:xyz", "Name:xyz" or "ClassName:xyz".
+    /// Format per entry: "AutomationId:xyz", "Name:xyz", "ClassName:xyz" or "NameContains:xyz".
     /// Empty selectors cause a descriptive CONTROL_NOT_MAPPED failure instead of blind clicking.
     /// </summary>
     public Dictionary<string, string> Selectors { get; set; } = new();

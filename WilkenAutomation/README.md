@@ -110,27 +110,40 @@ Dummy login is `tester` / `tester`. Client `002` + department `Steuerrecht` expo
 
 To go back to mock: run Worker with `DOTNET_ENVIRONMENT=Development` (or set `Worker:AutomationMode` to `Mock`).
 
-To go to real Wilken later: set `AutomationMode` to `Wilken`, fill `Wilken:ExecutablePath` and `Wilken:Selectors` from `--inspect`.
+To go to real Wilken: set `AutomationMode` to `Wilken`. Do **not** launch Wilken from the worker.
 
-### Wilken control-discovery POC (Phase 5)
+### Real Citrix test environment (attach-only)
 
-Before real automation, inspect the actual Wilken CS/2 controls:
+Wilken test is opened by the user from Citrix Workspace in the browser. After login,
+the worker only automates — it never opens Citrix, never starts Wilken, and never
+types the Wilken password.
+
+1. In the browser, open Citrix Workspace and start the **Test Environment** desktop.
+2. Log in to Wilken yourself.
+3. On **that same desktop**, start `WilkenAutomation.Worker` (`AutomationMode=Wilken`).
+   The worker must share Wilken's Windows session. A worker on the browser PC can
+   only see a Citrix picture and cannot automate.
+4. Inspect the live UI (the stack may be WinForms, WPF, Win32, or Java):
 
 ```powershell
+dotnet run --project WilkenAutomation.Worker -- --inspect
 dotnet run --project WilkenAutomation.Worker -- --inspect "Wilken CS/2"
 ```
 
-This dumps the UIA tree (ControlType, AutomationId, Name, ClassName, handle,
-enabled state) to console + `wilken-controls-<timestamp>.txt`. Map the findings
-into `Wilken:Selectors` (format `AutomationId:...`, `Name:...` or
-`ClassName:...`). Unmapped steps fail with `CONTROL_NOT_MAPPED` instead of blind
-clicking; fixed coordinates are never used.
+5. Map `Wilken:Selectors` from the dump (`AutomationId:`, `Name:`, `ClassName:`, or `NameContains:`).
+   Real mode refuses to start until the core selectors are mapped (`INSPECT_REQUIRED`).
+6. Start a run from the dashboard. The worker attaches to the already-open window.
+
+If `--inspect` shows almost no controls on a Java window, enable Java Access Bridge
+inside the Citrix session (`jabswitch -enable`), restart Wilken, and inspect again.
+
+`AttachOnly`, `SkipLogin`, and `RequireInspectedSelectors` default to `true` in
+`appsettings.json`. Replica/DesktopTest sets them false so the dummy exe can still launch.
 
 ### Credentials
 
-Never in source code. `Wilken:Username` via configuration/user-secrets, password
-via the `WILKEN_PASSWORD` environment variable (or user-secrets). Provided
-through `IWilkenCredentialProvider`, never logged and never exposed by the API.
+Not used for Citrix test login (the user logs in). `Wilken:Username` / `WILKEN_PASSWORD`
+remain available only if `SkipLogin` is later turned off.
 
 ## REST API
 

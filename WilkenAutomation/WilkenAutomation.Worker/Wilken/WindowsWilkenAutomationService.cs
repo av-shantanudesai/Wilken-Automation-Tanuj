@@ -67,44 +67,76 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         if (TryIsAlive() && SessionStatus == WilkenSessionStatus.Ready)
             return;
 
+        EnsureInspectedSelectors();
+
         SessionStatus = WilkenSessionStatus.Starting;
         _automation ??= new UIA3Automation();
 
-        var processName = EffectiveProcessName();
-        var existing = GetWilkenProcesses(processName);
+        var attachOnly = _options.AttachOnly && !IsReplica;
         var launched = false;
-        if (existing.Length > 0)
+
+        if (attachOnly)
         {
-            _app = FlaUI.Core.Application.Attach(existing[0]);
-            _logger.LogInformation("Attached to running Wilken process {Pid}.", existing[0].Id);
-            if (FindMainWindow() is null)
+            _logger.LogInformation(
+                "Attach-only Wilken session: waiting for a user-opened desktop (Citrix). Will not launch or kill Wilken.");
+            try
             {
-                _logger.LogWarning("Wilken process {Pid} has no main window (user closed it). Restarting.", existing[0].Id);
-                await KillTrackedProcessAsync();
-                LaunchWilken();
-                launched = true;
+                await WaitHelper.WaitUntilAsync(
+                    TryAttachToOpenSession,
+                    TimeSpan.FromSeconds(_options.StartupTimeoutSeconds),
+                    TimeSpan.FromMilliseconds(_options.PollingIntervalMs),
+                    $"user-opened Wilken window '{_options.MainWindowTitle}'",
+                    ct);
+            }
+            catch (WaitTimeoutException ex)
+            {
+                throw new WilkenAutomationException("WILKEN_NOT_ATTACHED",
+                    "Wilken desktop was not found in this Windows session. " + WilkenSessionPolicy.AttachInstructions,
+                    sessionLost: true, ex);
             }
         }
         else
         {
-            LaunchWilken();
-            launched = true;
+            var processName = EffectiveProcessName();
+            var existing = GetWilkenProcesses(processName);
+            if (existing.Length > 0)
+            {
+                AttachToProcess(existing[0]);
+                if (FindMainWindow() is null)
+                {
+                    _logger.LogWarning("Wilken process {Pid} has no main window (user closed it). Restarting.", existing[0].Id);
+                    await KillTrackedProcessAsync();
+                    LaunchWilken();
+                    launched = true;
+                }
+            }
+            else
+            {
+                LaunchWilken();
+                launched = true;
+            }
+
+            await WaitHelper.WaitUntilAsync(() =>
+            {
+                _mainWindow = FindMainWindow();
+                return _mainWindow is not null;
+            },
+            TimeSpan.FromSeconds(_options.StartupTimeoutSeconds),
+            TimeSpan.FromMilliseconds(_options.PollingIntervalMs),
+            $"Wilken main window '{_options.MainWindowTitle}'", ct);
         }
 
-        await WaitHelper.WaitUntilAsync(() =>
-        {
-            _mainWindow = FindMainWindow();
-            return _mainWindow is not null;
-        },
-        TimeSpan.FromSeconds(_options.StartupTimeoutSeconds),
-        TimeSpan.FromMilliseconds(_options.PollingIntervalMs),
-        $"Wilken main window '{_options.MainWindowTitle}'", ct);
+        LogAttachedWindow();
 
         if (launched && !IsReplica)
             MinimizeWithoutActivating();
 
         HandleDialogs();
-        await LoginIfRequiredAsync(ct);
+        if (!_options.SkipLogin)
+            await LoginIfRequiredAsync(ct);
+        else
+            _logger.LogInformation("SkipLogin is on — expecting the user to already be logged in.");
+
         SessionStatus = WilkenSessionStatus.Ready;
     }
 
@@ -315,6 +347,17 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
     public async Task RecoverSessionAsync(CancellationToken ct)
     {
         SessionStatus = WilkenSessionStatus.Recovering;
+        if (_options.AttachOnly && !IsReplica)
+        {
+            _logger.LogWarning(
+                "Attach-only recovery: not closing Wilken. Re-attach after the user reopens it from Citrix if needed.");
+            _app = null;
+            _mainWindow = null;
+            SessionStatus = WilkenSessionStatus.NotRunning;
+            await EnsureSessionAsync(ct);
+            return;
+        }
+
         _logger.LogWarning("Recovering Wilken session: closing broken instance and restarting.");
         await KillTrackedProcessAsync();
         await EnsureSessionAsync(ct);
@@ -360,6 +403,19 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                 // Fall through to a clear error.
             }
 
+            try
+            {
+                if (element.Patterns.LegacyIAccessible.IsSupported)
+                {
+                    element.Patterns.LegacyIAccessible.Pattern.DoDefaultAction();
+                    return;
+                }
+            }
+            catch
+            {
+                // Win32/Java MSAA fallback failed.
+            }
+
             throw new WilkenAutomationException("CONTROL_INVOKE_FAILED",
                 $"Control '{element.AutomationId ?? element.Name}' does not support UIA Invoke. Mouse clicks are disabled.");
         });
@@ -394,6 +450,19 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
             catch
             {
                 // Not a combo.
+            }
+
+            try
+            {
+                if (element.Patterns.LegacyIAccessible.IsSupported)
+                {
+                    element.Patterns.LegacyIAccessible.Pattern.SetValue(value);
+                    return;
+                }
+            }
+            catch
+            {
+                // Win32/Java MSAA fallback failed.
             }
 
             throw new WilkenAutomationException("VALUE_PATTERN_UNSUPPORTED",
@@ -449,7 +518,9 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
     {
         if (!TryIsAlive())
             throw new WilkenAutomationException("WILKEN_NOT_RUNNING",
-                "Wilken desktop was closed or the process is no longer running. Session will be recovered and the job retried.",
+                _options.AttachOnly && !IsReplica
+                    ? "Wilken desktop was closed or is not in this session. " + WilkenSessionPolicy.AttachInstructions
+                    : "Wilken desktop was closed or the process is no longer running. Session will be recovered and the job retried.",
                 sessionLost: true);
     }
 
@@ -503,6 +574,143 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         catch (Exception ex) when (ex is COMException or InvalidOperationException or ArgumentException)
         {
             return false;
+        }
+    }
+
+    private void EnsureInspectedSelectors()
+    {
+        if (!_options.RequireInspectedSelectors || IsReplica)
+            return;
+
+        var missing = WilkenSelectorCatalog.MissingRequired(_options.Selectors);
+        if (missing.Count == 0)
+            return;
+
+        throw new WilkenAutomationException("INSPECT_REQUIRED",
+            "Real Wilken UI (WinForms, WPF, Win32, or Java) must be inspected before automation. " +
+            "Inside the Citrix Test Environment desktop run: " +
+            $"dotnet run --project WilkenAutomation.Worker -- --inspect \"{_options.MainWindowTitle}\". " +
+            "Map the dumped AutomationId/Name/ClassName values into Wilken:Selectors. Missing: " +
+            string.Join(", ", missing) + ". " + WilkenSessionPolicy.AttachInstructions);
+    }
+
+    private bool TryAttachToOpenSession()
+    {
+        _automation ??= new UIA3Automation();
+
+        var processName = EffectiveProcessName();
+        if (!string.IsNullOrWhiteSpace(processName))
+        {
+            foreach (var process in GetWilkenProcesses(processName))
+            {
+                if (WilkenSessionPolicy.IsRemoteDisplayProcess(process.ProcessName))
+                    continue;
+                if (TryAttachToProcess(process))
+                    return true;
+            }
+        }
+
+        return TryAttachByWindowTitle();
+    }
+
+    private bool TryAttachToProcess(Process process)
+    {
+        try
+        {
+            if (WilkenSessionPolicy.IsRemoteDisplayProcess(process.ProcessName))
+            {
+                _logger.LogWarning(
+                    "Ignoring window on remote-display process {Process}. The worker must run inside the Citrix desktop, not beside the browser.",
+                    process.ProcessName);
+                return false;
+            }
+
+            _app = FlaUI.Core.Application.Attach(process);
+            _mainWindow = FindMainWindow() ?? FirstTopLevelWindow();
+            return _mainWindow is not null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not attach to PID {Pid}.", process.Id);
+            _app = null;
+            _mainWindow = null;
+            return false;
+        }
+    }
+
+    private bool TryAttachByWindowTitle()
+    {
+        if (_automation is null || string.IsNullOrWhiteSpace(_options.MainWindowTitle))
+            return false;
+
+        try
+        {
+            foreach (var child in _automation.GetDesktop().FindAllChildren())
+            {
+                var title = child.Properties.Name.ValueOrDefault ?? "";
+                if (!title.Contains(_options.MainWindowTitle, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var pid = child.Properties.ProcessId.ValueOrDefault;
+                if (pid <= 0) continue;
+
+                Process process;
+                try { process = Process.GetProcessById(pid); }
+                catch { continue; }
+
+                if (TryAttachToProcess(process))
+                    return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Desktop window scan failed.");
+        }
+
+        return false;
+    }
+
+    private void AttachToProcess(Process process)
+    {
+        if (!TryAttachToProcess(process))
+        {
+            _app = FlaUI.Core.Application.Attach(process);
+            _logger.LogInformation("Attached to running Wilken process {Pid}.", process.Id);
+        }
+    }
+
+    private Window? FirstTopLevelWindow()
+    {
+        if (_app is null || _automation is null) return null;
+        try { return _app.GetAllTopLevelWindows(_automation).FirstOrDefault(); }
+        catch { return null; }
+    }
+
+    private void LogAttachedWindow()
+    {
+        if (_mainWindow is null || _app is null) return;
+        string framework;
+        string className;
+        try
+        {
+            framework = _mainWindow.Properties.FrameworkId.ValueOrDefault ?? "";
+            className = _mainWindow.Properties.ClassName.ValueOrDefault ?? "";
+        }
+        catch
+        {
+            framework = "";
+            className = "";
+        }
+
+        _logger.LogInformation(
+            "Attached to Wilken pid {Pid}, title '{Title}', framework '{Framework}', class '{Class}'.",
+            _app.ProcessId, _mainWindow.Title, framework, className);
+
+        if (WilkenSessionPolicy.IsLikelyJavaWindow(className, framework))
+        {
+            _logger.LogWarning(
+                "Window looks like Java. If --inspect shows almost no controls, enable Java Access Bridge " +
+                "(jabswitch -enable) inside the Citrix desktop and inspect again.");
         }
     }
 
@@ -621,8 +829,9 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                 : "CONTROL_NOT_MAPPED",
             _options.Selectors.ContainsKey(selectorKey)
                 ? $"Control '{selectorKey}' ({_options.Selectors[selectorKey]}) not found in the Wilken UI."
-                : $"No selector configured for '{selectorKey}'. Run the control-discovery POC " +
-                  $"(dotnet run -- --inspect \"{_options.MainWindowTitle}\") and map Wilken:Selectors:{selectorKey}.");
+                : $"No selector configured for '{selectorKey}'. Real Wilken UI must be inspected first " +
+                  $"(dotnet run --project WilkenAutomation.Worker -- --inspect \"{_options.MainWindowTitle}\") " +
+                  $"then map Wilken:Selectors:{selectorKey} from AutomationId/Name/ClassName.");
 
     private AutomationElement? TryFind(string selectorKey)
     {
@@ -654,6 +863,11 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                     ?? (root.AutomationId == value ? root : null),
                 "name" => root.FindFirstDescendant(cf => cf.ByName(value)),
                 "classname" => root.FindFirstDescendant(cf => cf.ByClassName(value)),
+                "namecontains" => root.FindAllDescendants()
+                    .FirstOrDefault(e => (e.Name ?? "").Contains(value, StringComparison.OrdinalIgnoreCase)),
+                "frameworkid" => root.FindAllDescendants()
+                    .FirstOrDefault(e => (e.Properties.FrameworkId.ValueOrDefault ?? "")
+                        .Equals(value, StringComparison.OrdinalIgnoreCase)),
                 _ => null
             };
         }

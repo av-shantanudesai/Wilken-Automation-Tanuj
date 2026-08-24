@@ -72,13 +72,24 @@
     </div>
 
     <h2>Wilken desktop and export folder</h2>
+    <div class="workflow-note">
+      <strong>Real Citrix test environment</strong>
+      <ol>
+        <li>Open the Test Environment desktop from Citrix Workspace in the browser and log in to Wilken yourself.</li>
+        <li>Start the worker <em>inside that same desktop</em> — not on the PC that only has the browser.</li>
+        <li>Inspect the live UI first (WinForms, WPF, Win32, or Java):
+          <code>dotnet run --project WilkenAutomation.Worker -- --inspect</code>
+          then map <code>Wilken:Selectors</code> from the dump. Automation starts only after that.</li>
+      </ol>
+      <p>The worker never opens Citrix, never launches Wilken, and never types the Wilken password.</p>
+    </div>
     <div class="path-row">
-      <label>Wilken desktop executable</label>
+      <label>Wilken process path (optional, attach identity only)</label>
       <input type="text"
-             placeholder="C:\Program Files\Wilken\CS2\Wilken.exe  or  replica .exe"
+             placeholder="Leave empty for Citrix attach-only. Replica exe path for DesktopTest."
              [ngModel]="wilkenExecutablePath()"
              (ngModelChange)="wilkenExecutablePath.set($event)" />
-      <p class="hint">Full path of the Wilken CS/2 (or replica) desktop to launch. Leave empty to use the Worker appsettings path.</p>
+      <p class="hint">Real test: leave empty — Wilken is already open after your Citrix login. DesktopTest/replica: path of the dummy exe to launch.</p>
     </div>
     <div class="path-row">
       <label>Export report folder</label>
