@@ -41,7 +41,6 @@ public sealed class SpoolLine
     public string DisplayDescription => string.IsNullOrWhiteSpace(Beschreibung) ? "" : $"{Beschreibung}    {Pfad}";
     public ReportKind? ReportKind { get; set; }
     public bool IsDescriptionLine { get; set; }
-    public bool IsCurrentRun { get; set; }
 }
 
 public sealed record TimingProfile(int GenerationStage1Ms, int GenerationStage2Ms, int SpoolLoadMs, int ExportMs, int ExpectedApproxSeconds);

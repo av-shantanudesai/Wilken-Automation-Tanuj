@@ -158,6 +158,20 @@ public class JobExecutor
                 job.Sha256 = await _checksum.ComputeSha256Async(finalPath, ct);
             }
 
+            // Unwind child windows back to Prozesse verwalten before the next job.
+            // Never re-click Prozesse verwalten in the navigation tree while children are open.
+            await SetState(job, ApplicationState.ReturningToProcessManager, userId, ct);
+            try
+            {
+                await _wilken.ReturnToProcessManagerAsync(ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex,
+                    "Could not return to Prozesse verwalten after a valid export for {JobId}; the next job will attempt recovery.",
+                    job.JobId);
+            }
+
             // Step 14 - persist final result (transactional with attempt + run counters)
             var finalStatus = validation.Status == ValidationStatus.ValidEmpty
                 ? JobStatus.SuccessEmpty
@@ -221,6 +235,12 @@ public class JobExecutor
 
         var screenshotPath = await _screenshots.CaptureAsync(
             job.RunId, job.JobId, attempt.AttemptNumber, errorCode, ct);
+
+        if (!sessionLost)
+        {
+            try { await _wilken.ReturnToProcessManagerAsync(ct); }
+            catch { /* best-effort so the next attempt is not blocked by Funktion gesperrt */ }
+        }
 
         var exhausted = attempt.AttemptNumber >= config.MaxAttempts;
         var nextStatus = exhausted ? JobStatus.FailedFinal : JobStatus.Retry;

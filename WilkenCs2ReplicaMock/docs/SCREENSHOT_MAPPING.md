@@ -26,3 +26,7 @@ When sending screenshots to Cursor, name them `01_Home.png`, `02_ProcessManager.
 Cursor instruction for screenshots:
 
 > Treat screenshots as the visual source of truth and `AUTOMATION_WORKFLOW.md` as the interaction/state source of truth. Match the screen represented by each image without redesigning, deleting controls, or combining steps.
+
+## Added screenshots: repeated-job close behavior
+
+The supplied test-environment screenshots show the small **X** at the top-right of the internal blue Wilken title bar on Gitterbox Export, Liste anzeigen, and Anlagenspiegel erstellen. Use these screenshots as the visual reference for `InternalWindow_Close`. One screenshot also shows `Funktion gesperrt` after trying to open Prozesse verwalten again while the previous process context is still active; the mock reproduces this with `FunctionLockedDialog`.

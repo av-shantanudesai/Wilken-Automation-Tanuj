@@ -52,6 +52,12 @@ public interface IWilkenAutomationService
     /// <summary>Exports the report and returns the path of the produced (temporary) file.</summary>
     Task<string> ExportAsync(ExportJob job, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Close Gitterbox → spool → report with the internal Wilken X until
+    /// Prozesse verwalten / ProcessManager_Grid is visible. Required before the next batch job.
+    /// </summary>
+    Task ReturnToProcessManagerAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
     Task<bool> IsSessionHealthyAsync(CancellationToken cancellationToken);
     Task RecoverSessionAsync(CancellationToken cancellationToken);
 }

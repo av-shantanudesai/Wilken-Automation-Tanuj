@@ -24,6 +24,12 @@ if (args.Length >= 1 && args[0] == "--inspect")
     return;
 }
 
+if (args.Length >= 1 && args[0].Equals("--replica-smoke", StringComparison.OrdinalIgnoreCase))
+{
+    Environment.ExitCode = await ReplicaSmokeRunner.RunAsync();
+    return;
+}
+
 var forceDesktopTest = args.Any(a => a.Equals("--desktop-test", StringComparison.OrdinalIgnoreCase));
 var hostArgs = args.Where(a => !a.Equals("--desktop-test", StringComparison.OrdinalIgnoreCase)).ToArray();
 

@@ -41,6 +41,8 @@ public partial class WindowsWilkenAutomationService
 
         foreach (var modal in modals)
         {
+            if (IsFunctionLockedWindow(modal)) continue;
+
             var title = modal.Title ?? "<untitled>";
             if (IsKnownDialog(title)) continue;
 
@@ -59,6 +61,26 @@ public partial class WindowsWilkenAutomationService
         return false;
     }
 
+    private static bool IsFunctionLockedWindow(AutomationElement window)
+    {
+        try
+        {
+            if (string.Equals(window.AutomationId, "FunctionLockedDialog", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (SafeUiName(window).Contains("Funktion gesperrt", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if ((window.Properties.Name.ValueOrDefault ?? "").Contains("Funktion gesperrt", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (window.FindFirstDescendant(cf => cf.ByAutomationId("FunctionLocked_OK")) is not null)
+                return true;
+            if (window.FindFirstDescendant(cf => cf.ByAutomationId("FunctionLockedDialog")) is not null)
+                return true;
+        }
+        catch { }
+
+        return false;
+    }
+
     private bool IsKnownDialog(string title)
     {
         if (IsReplica && (
@@ -66,7 +88,8 @@ public partial class WindowsWilkenAutomationService
             || title.Contains("Anlagenspiegel", StringComparison.OrdinalIgnoreCase)
             || title.Contains("Fortschritt", StringComparison.OrdinalIgnoreCase)
             || title.Contains("Druckauswahl", StringComparison.OrdinalIgnoreCase)
-            || title.Contains("Gitterbox", StringComparison.OrdinalIgnoreCase)))
+            || title.Contains("Gitterbox", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Funktion gesperrt", StringComparison.OrdinalIgnoreCase)))
             return true;
 
         var known = _options.Selectors.GetValueOrDefault("KnownDialogTitles", "")

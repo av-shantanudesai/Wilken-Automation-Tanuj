@@ -34,21 +34,82 @@ Preferred locator order:
 5. Image/template matching.
 6. Coordinates only as the last fallback.
 
+## Mandatory repeated-job return-to-start sequence
+
+This behavior was confirmed from the test-environment screenshots and is **mandatory for every repeated/batch job**. Wilken keeps `Prozesse verwalten` open underneath the report/list/export child windows. If automation tries to open `Prozesse verwalten` again from the left navigation while those child windows are still active, Wilken can show:
+
+`Funktion gesperrt`
+
+with text equivalent to:
+
+`Die angeforderte Funktion "CAD18" ist derzeit gesperrt, da sie bereits in einem anderen Prozess verwendet wird.`
+
+Therefore **never navigate to `Prozesse verwalten` again to start the next job while the current child windows are still open.**
+
+After the XLSX has been created and validated, unwind the open Wilken child windows using the **small X in the top-right corner of the blue Wilken child-window title bar**. This is **not** the Windows/Citrix/application close button in the outermost title bar.
+
+Mock locator for this internal close control:
+
+`AutomationId=InternalWindow_Close`
+
+Expected unwind sequence after export:
+
+1. Current screen = `System - Gitterbox-Export` → click internal X.
+2. Verify return to `Anlagenbuchhaltung - Liste anzeigen` / spool grid.
+3. Click the same internal X again.
+4. Verify return to the active report definition, for example `Anlagenbuchhaltung - Anlagenspiegel erstellen` or `Anlagenbuchhaltung - Zugangsliste erstellen`.
+5. Click the same internal X again.
+6. Verify return to `Anlagenbuchhaltung - Prozesse verwalten`.
+7. Verify the process grid is visible (`AutomationId=ProcessManager_Grid`).
+8. Only now select/double-click the next process row and start the next job.
+
+Do **not** count X clicks blindly. After every click, wait for and verify the expected screen title/control. If an intermediate screen is not present, continue closing until `Prozesse verwalten` is positively detected. Stop closing as soon as the process-manager grid is visible; do not close the whole Wilken application.
+
+For the mock, intentionally attempting to open `Prozesse verwalten` again while a process-manager child workflow is active displays `FunctionLockedDialog`, matching this real-system behavior.
+
+### Recommended batch loop
+
+`Prozesse verwalten`
+→ `select exact process row`
+→ `open/run report`
+→ `Liste anzeigen`
+→ `Druckauswahl`
+→ `spool`
+→ `Export → Erweitert`
+→ `XLSX + Excel + Alle`
+→ `green toolbar execute`
+→ `validate XLSX`
+→ `internal X until Prozesse verwalten`
+→ `verify ProcessManager_Grid`
+→ `next process`.
+
 ---
 
 # Workflow A — Zugangsliste
 
 ## A1. Open the report screen
 
-Navigation path:
+For the **repeated automation/batch loop**, start from the already-open:
+
+`Anlagenbuchhaltung - Prozesse verwalten`
+
+Locate the process row by values:
+
+- Programm = `CAB024`
+- Prozess = `001`
+- Bezeichnung = `Zugangsliste`
+
+Select the exact row and double-click it. Verify the expected screen title:
+
+`Anlagenbuchhaltung - Zugangsliste erstellen`
+
+The direct navigation path remains available for manual/single-flow testing:
 
 `Anlagenbuchhaltung → Prozesse → Einzeldefinitionen → Zugangsliste erstellen`
 
-Mock locator: `AutomationId=Nav_Zugangsliste`.
+Mock direct-navigation locator: `AutomationId=Nav_Zugangsliste`.
 
-Expected screen title:
-
-`Anlagenbuchhaltung - Zugangsliste erstellen`
+For unattended repeated jobs, prefer the process-manager row so the workflow has one consistent start/end point.
 
 ## A2. Verify/set report fields
 
@@ -211,21 +272,37 @@ Recommended deterministic name:
 
 `{Client}_{Year}_{Department}_Zugangsliste.xlsx`
 
+## A10. Close child windows and return to Prozesse verwalten
+
+After the file is validated, perform the **Mandatory repeated-job return-to-start sequence** from the Common shell section. Do not click `Prozesse verwalten` from the navigation tree again. Use `InternalWindow_Close` repeatedly with screen verification until `ProcessManager_Grid` is visible, then begin the next job.
+
 ---
 
 # Workflow B — Anlagenspiegel Detailliert nach Anlagen
 
 ## B1. Open screen
 
-Navigation path:
+For the **repeated automation/batch loop**, start from:
+
+`Anlagenbuchhaltung - Prozesse verwalten`
+
+Locate the process row by values:
+
+- Programm = `CAB015`
+- Prozess = `001`
+- Bezeichnung = `Anlagenspiegel nach Anlagen`
+
+Select the exact row and double-click it. Verify:
+
+`Anlagenbuchhaltung - Anlagenspiegel erstellen`
+
+The direct navigation path remains available for manual/single-flow testing:
 
 `Anlagenbuchhaltung → Prozesse → Einzeldefinitionen → Anlagenspiegel erstellen`
 
-Mock locator: `Nav_Anlagenspiegel`.
+Mock direct-navigation locator: `Nav_Anlagenspiegel`.
 
-Screen title:
-
-`Anlagenbuchhaltung - Anlagenspiegel erstellen`
+For unattended repeated jobs, prefer the process-manager row so every completed job can unwind back to the same starting grid.
 
 ## B2. Verify/set fields
 
@@ -319,6 +396,10 @@ Then export and validate exactly as A9.
 Recommended filename:
 
 `{Client}_{Year}_{Department}_Anlagenspiegel_Detailliert_nach_Anlagen.xlsx`
+
+## B7. Close child windows and return to Prozesse verwalten
+
+After XLSX validation, unwind `Gitterbox-Export → Liste anzeigen/spool → Anlagenspiegel erstellen` with the internal blue-title-bar X (`InternalWindow_Close`) until `Anlagenbuchhaltung - Prozesse verwalten` and `ProcessManager_Grid` are visible. Only then start the next process.
 
 ---
 
@@ -608,7 +689,25 @@ Recommended filename:
 
 `{Client}_{Year}_{Department}_Alle_Anlagen_nach_Konten_verdichtet.xlsx`
 
-## C12. Exact high-level sequence from the full ALDI recording
+## C12. Close current child windows before the next process
+
+After XLSX validation, do **not** click `Prozesse verwalten` in the left navigation. That can produce `Funktion gesperrt` because the original process-manager context is still open underneath the current child windows.
+
+Use the internal close X (`AutomationId=InternalWindow_Close`) and verify each return state:
+
+`System - Gitterbox-Export`
+→ internal X
+→ `Anlagenbuchhaltung - Liste anzeigen` / spool
+→ internal X
+→ `Anlagenbuchhaltung - Anlagenspiegel erstellen`
+→ internal X
+→ `Anlagenbuchhaltung - Prozesse verwalten`
+→ verify `ProcessManager_Grid`
+→ select next process.
+
+Never click the outer Windows/Citrix close button. Never continue closing after `ProcessManager_Grid` is visible.
+
+## C13. Exact high-level sequence from the full ALDI recording
 
 The complete verified sequence is:
 
@@ -638,7 +737,10 @@ The complete verified sequence is:
 → `Datensätze = Alle`
 → `green toolbar execute / Export ausführen`
 → `wait for XLSX/Excel`
-→ `validate and finalize file`.
+→ `validate and finalize file`
+→ `internal close X: Gitterbox → spool → report`
+→ `verify Prozesse verwalten / ProcessManager_Grid`
+→ `select next process`.
 
 # Required automation state machine
 
@@ -662,11 +764,16 @@ Implement states similar to:
 → `WaitingForDownload`
 → `ValidatingFile`
 → `RenamingFile`
+→ `ClosingExportChild`
+→ `ClosingSpoolChild`
+→ `ClosingReportChild`
+→ `WaitingForProcessManager`
+→ `ReadyForNextProcess`
 → `Success`
 
 Failure/retry states:
 
-`UiElementNotFound`, `UnexpectedDialog`, `GenerationTimeout`, `SpoolEntryNotFound`, `AmbiguousSpoolMatch`, `ExportDialogTimeout`, `DownloadTimeout`, `InvalidXlsx`, `RetryableFailure`, `FailedFinal`.
+`UiElementNotFound`, `UnexpectedDialog`, `FunctionLocked`, `GenerationTimeout`, `SpoolEntryNotFound`, `AmbiguousSpoolMatch`, `ExportDialogTimeout`, `DownloadTimeout`, `InvalidXlsx`, `ReturnToProcessManagerTimeout`, `RetryableFailure`, `FailedFinal`.
 
 Never mark a job successful merely because the Export command was clicked.
 
@@ -720,5 +827,7 @@ Give Cursor screenshots for these visual checkpoints, and tell it that this docu
 11. Gitterbox export after XLSX selection.
 12. Downloaded XLSX visible in Downloads/browser.
 13. Prozesse verwalten grid and the `CAB015 / 003 / Alle Anlagen nach Konten verdichtet` row.
+14. Internal child-window close X in the top-right blue Wilken title bar.
+15. `Funktion gesperrt` dialog shown when Prozesse verwalten is opened again before child windows are closed.
 
 Cursor should refine dimensions/colors/icons against screenshots but must not change the workflow or field semantics documented here.

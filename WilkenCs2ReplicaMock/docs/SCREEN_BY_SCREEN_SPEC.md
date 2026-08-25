@@ -173,3 +173,22 @@ Same screen, only format changes to XLSX. Execute/check action triggers export.
 - preserve labels even when values are blank
 - preserve right pane/context counters where recorded
 - use screenshots to adjust x/y placement and widths; do not change behavioral names/AutomationIds while visually tuning
+
+## Internal child-window close control (test-environment screenshots, 24 Aug 2026)
+
+Every active Wilken work/child screen shown in the supplied screenshots has a small close **X** at the far right of the blue internal title bar. This is distinct from the outer Windows/Citrix/application close button.
+
+Mock contract:
+
+- `AutomationId=InternalWindow_Close`
+- Automation Name: `Schließen`
+- Placement: far right of the blue Wilken internal title bar, immediately next to the small restore/square control.
+
+Repeated-job behavior:
+
+- Export X → returns to Liste anzeigen/spool.
+- Liste anzeigen X → returns to the active report definition.
+- Report-definition X → returns to Prozesse verwalten when that report was opened from the process grid.
+- Stop closing when `ProcessManager_Grid` is visible.
+
+Attempting to open Prozesse verwalten again from Navigation before these child screens are closed should show the Wilken-style `Funktion gesperrt` dialog.

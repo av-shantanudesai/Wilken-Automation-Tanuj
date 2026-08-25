@@ -82,6 +82,7 @@ public enum ApplicationState
     WaitingForFile,
     ValidatingFile,
     CalculatingHash,
+    ReturningToProcessManager,
     Completed,
     RecoveringSession
 }

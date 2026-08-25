@@ -9,9 +9,10 @@ using WilkenAutomation.Application.Services;
 namespace WilkenAutomation.Worker.Wilken;
 
 /// <summary>
-/// DesktopTest path against WilkenCs2ReplicaMock, following AUTOMATION_WORKFLOW.md:
-/// navigate → configure → execute → confirm → wait Fortschritt → Liste anzeigen →
-/// Druckauswahl → exact PRT spool row → Export Erweitert → force XLSX → file.
+/// DesktopTest path against WilkenCs2ReplicaMock, following AUTOMATION_WORKFLOW:
+/// Prozesse verwalten → select process → execute → wait Fortschritt → Liste anzeigen →
+/// Druckauswahl → exact data spool row → Export Erweitert → force XLSX → validate →
+/// InternalWindow_Close until ProcessManager_Grid (never re-click Prozesse verwalten).
 /// </summary>
 public partial class WindowsWilkenAutomationService
 {
@@ -34,8 +35,8 @@ public partial class WindowsWilkenAutomationService
         Anchors =
         {
             ScreenAnchor.ById("Spool_Grid"),
-            ScreenAnchor.ById("Spool_SelectCurrentPrt"),
-            ScreenAnchor.ByText("Druckauswahl")
+            ScreenAnchor.ById("Spool_SelectAll"),
+            ScreenAnchor.ByText("Liste anzeigen")
         },
         MinMatches = 2
     };
@@ -72,9 +73,9 @@ public partial class WindowsWilkenAutomationService
     {
         var parts = new List<string>(2);
         var title = TryFindByAutomationId("Screen_Title");
-        if (title is not null) parts.Add(title.Name ?? ReadValue(title));
+        if (title is not null) parts.Add(SafeUiName(title) + " " + ReadValue(title));
         var status = TryFindByAutomationId("Status_Text");
-        if (status is not null) parts.Add(status.Name ?? ReadValue(status));
+        if (status is not null) parts.Add(SafeUiName(status) + " " + ReadValue(status));
         return string.Join(" ", parts);
     }
 
@@ -121,7 +122,7 @@ public partial class WindowsWilkenAutomationService
             var navId = definition.ReplicaNavId
                 ?? throw new WilkenAutomationException("VIEW_NOT_MAPPED",
                     $"Export '{definition.Name}' has no replica navigation mapping.");
-            InvokeControl(FindByAutomationId(navId));
+            await ActivateReplicaControlAsync(navId, ct);
             await WaitUntilUiAsync(
                 () => ScreenTitleContains(definition.ReplicaTitleContains ?? definition.DisplayName),
                 TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
@@ -132,19 +133,34 @@ public partial class WindowsWilkenAutomationService
     }
 
     /// <summary>
-    /// Screenshots / reviewed workflow: always start at Prozesse verwalten,
-    /// select the saved process by program + number + name, then open it.
-    /// Never jump directly to Zugangsliste/Anlagenspiegel from Einzeldefinitionen.
+    /// Screenshots / reviewed workflow: start at Prozesse verwalten when it is not
+    /// already open. Never click Nav_ProzesseVerwalten while a child report/list/export
+    /// window is still active — that produces Funktion gesperrt (CAD18).
     /// </summary>
     private async Task ReplicaOpenSavedProcessAsync(ExportDefinition definition, CancellationToken ct)
     {
         var (program, number, name) = ResolveSavedProcess(definition);
 
-        InvokeControl(FindByAutomationId("Nav_ProzesseVerwalten"));
-        await WaitUntilUiAsync(
-            () => ScreenEngine.Matches(ProcessManagerScreen),
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            "Prozesse verwalten", ct);
+        if (IsFunctionLockedVisible())
+        {
+            DismissFunctionLockedIfPresent();
+            await ReplicaReturnToProcessManagerAsync(ct);
+        }
+        else if (!IsProcessManagerVisible())
+        {
+            await ActivateReplicaControlAsync("Nav_ProzesseVerwalten", ct);
+            await WaitUntilUiAsync(
+                () => IsProcessManagerVisible() || IsFunctionLockedVisible(),
+                TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+                "Prozesse verwalten", ct);
+
+            if (IsFunctionLockedVisible())
+            {
+                _logger.LogWarning("Funktion gesperrt after opening Prozesse verwalten; unwinding child windows first.");
+                DismissFunctionLockedIfPresent();
+                await ReplicaReturnToProcessManagerAsync(ct);
+            }
+        }
 
         var rowId = $"ProcessRow_{program}_{number}";
 
@@ -308,7 +324,7 @@ public partial class WindowsWilkenAutomationService
         await WaitUntilUiAsync(() =>
         {
             var messageEl = TryFindByAutomationId("Progress_Message");
-            var message = messageEl is null ? "" : (messageEl.Name ?? ReadValue(messageEl));
+            var message = messageEl is null ? "" : (SafeUiName(messageEl) + " " + ReadValue(messageEl));
             if (!string.IsNullOrWhiteSpace(message) && !string.Equals(message, lastMessage, StringComparison.Ordinal))
             {
                 lastMessage = message;
@@ -325,11 +341,37 @@ public partial class WindowsWilkenAutomationService
     private async Task ReplicaOpenSpoolAsync(CancellationToken ct)
     {
         GuardHealthy();
-        InvokeControl(FindByAutomationId("Nav_ListeAnzeigen"));
-        await WaitUntilUiAsync(
-            () => TryFindByAutomationId("PrintSelection_Start") is not null,
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            "Druckauswahl", ct);
+        await ActivateReplicaControlAsync("Nav_ListeAnzeigen", ct);
+
+        var printOpened = false;
+        try
+        {
+            await WaitUntilUiAsync(
+                () => TryFindByAutomationId("PrintSelection_Start") is not null,
+                TimeSpan.FromSeconds(8),
+                "Druckauswahl", ct);
+            printOpened = true;
+        }
+        catch (WaitTimeoutException)
+        {
+            // TreeView SelectionItem.Select is a no-op when Liste anzeigen is already
+            // selected after the previous job. Invoke the dedicated open control instead.
+            _logger.LogWarning("Liste anzeigen was still selected; opening Druckauswahl via Nav_ListeAnzeigen_Open.");
+            var open = TryFindByAutomationId("Nav_ListeAnzeigen_Open");
+            if (open is not null)
+                InvokeControl(open);
+            else
+                await ActivateReplicaControlAsync("Nav_ListeAnzeigen", ct);
+        }
+
+        if (!printOpened)
+        {
+            await WaitUntilUiAsync(
+                () => TryFindByAutomationId("PrintSelection_Start") is not null,
+                TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+                "Druckauswahl", ct);
+        }
+
         InvokeControl(FindByAutomationId("PrintSelection_Start"));
         await WaitUntilUiAsync(
             () => ScreenEngine.Matches(SpoolListScreen),
@@ -349,6 +391,12 @@ public partial class WindowsWilkenAutomationService
         await WaitUntilUiAsync(() =>
         {
             error = null;
+            var latest = TryFindByAutomationId("Spool_LatestDataRow");
+            if (latest is not null)
+            {
+                target = latest;
+                return true;
+            }
             var found = FindMatchingDataSpoolRows(match, out var ambiguous);
             if (ambiguous)
             {
@@ -599,6 +647,9 @@ public partial class WindowsWilkenAutomationService
             "export file size stable and unlocked", ct);
 
         _logger.LogInformation("Replica export produced {Path} for {JobId}.", produced, job.JobId);
+
+        await Task.Delay(Math.Max(250, _options.PollingIntervalMs), ct);
+        await ReplicaReturnToProcessManagerAsync(ct);
         return produced!;
     }
 
@@ -643,7 +694,7 @@ public partial class WindowsWilkenAutomationService
         }
         catch (WaitTimeoutException ex)
         {
-            var actual = TryFindByAutomationId(automationId) is { } el ? (el.Name ?? ReadValue(el)) : "<missing>";
+            var actual = TryFindByAutomationId(automationId) is { } el ? (SafeUiName(el) + " " + ReadValue(el)) : "<missing>";
             throw new WilkenAutomationException("FIELD_MISMATCH",
                 $"Field '{automationId}' is '{actual}', expected '{expected}'.", inner: ex);
         }
@@ -766,7 +817,7 @@ public partial class WindowsWilkenAutomationService
         try
         {
             var status = TryFindByAutomationId("Status_Text");
-            var value = status is null ? "" : (status.Name ?? ReadValue(status));
+            var value = status is null ? "" : (SafeUiName(status) + " " + ReadValue(status));
             return value.Contains(text, StringComparison.OrdinalIgnoreCase);
         }
         catch
@@ -830,7 +881,7 @@ public partial class WindowsWilkenAutomationService
             var title = TryFindByAutomationId("Screen_Title");
             if (title is not null)
             {
-                var value = title.Name ?? ReadValue(title);
+                var value = SafeUiName(title) + " " + ReadValue(title);
                 if (value.Contains(text, StringComparison.OrdinalIgnoreCase))
                     return true;
             }
@@ -848,18 +899,251 @@ public partial class WindowsWilkenAutomationService
         ?? throw new WilkenAutomationException("CONTROL_NOT_FOUND",
             $"Replica control '{automationId}' was not found.");
 
+    /// <summary>
+    /// TreeView items expose SelectionItem, not Invoke. Re-selecting an already
+    /// selected node does not fire SelectedItemChanged, so force a toggle via Nav_Home
+    /// and wait until the previous selection is actually cleared.
+    /// </summary>
+    private async Task ActivateReplicaControlAsync(string automationId, CancellationToken ct)
+    {
+        var element = FindByAutomationId(automationId);
+        var alreadySelected = false;
+        try
+        {
+            alreadySelected = element.Patterns.SelectionItem.IsSupported
+                && element.Patterns.SelectionItem.Pattern.IsSelected.ValueOrDefault;
+        }
+        catch { }
+
+        if (alreadySelected && !string.Equals(automationId, "Nav_Home", StringComparison.OrdinalIgnoreCase))
+        {
+            var home = TryFindByAutomationId("Nav_Home");
+            WithoutStealingInput(() =>
+            {
+                try
+                {
+                    if (home?.Patterns.SelectionItem.IsSupported == true)
+                        home.Patterns.SelectionItem.Pattern.Select();
+                }
+                catch { }
+            });
+
+            try
+            {
+                await WaitUntilUiAsync(() =>
+                {
+                    var current = TryFindByAutomationId(automationId);
+                    if (current is null) return true;
+                    try
+                    {
+                        return !current.Patterns.SelectionItem.Pattern.IsSelected.ValueOrDefault;
+                    }
+                    catch
+                    {
+                        return true;
+                    }
+                }, TimeSpan.FromSeconds(3), $"deselect {automationId} via Nav_Home", ct);
+            }
+            catch (WaitTimeoutException)
+            {
+                _logger.LogWarning("Nav_Home did not deselect {NavId}; will re-select anyway.", automationId);
+            }
+
+            element = FindByAutomationId(automationId);
+        }
+
+        WithoutStealingInput(() =>
+        {
+            try
+            {
+                if (element.Patterns.SelectionItem.IsSupported)
+                {
+                    element.Patterns.SelectionItem.Pattern.Select();
+                    return;
+                }
+            }
+            catch { }
+
+            InvokeControl(element);
+        });
+    }
+
+    private bool IsProcessManagerVisible() =>
+        TryFindByAutomationId("ProcessManager_Grid") is not null;
+
+    private bool IsHomeVisible() => TryFindByAutomationId("Home_Workspace") is not null;
+
+    private bool IsFunctionLockedVisible() =>
+        TryFindByAutomationId("FunctionLockedDialog") is not null
+        || TryFindByAutomationId("FunctionLocked_OK") is not null;
+
+    private void DismissFunctionLockedIfPresent()
+    {
+        var ok = TryFindByAutomationId("FunctionLocked_OK");
+        if (ok is not null)
+        {
+            _logger.LogWarning("Dismissing Funktion gesperrt (CAD18) dialog.");
+            InvokeControl(ok);
+        }
+    }
+
+    private string DetectReplicaScreenName()
+    {
+        if (IsProcessManagerVisible()) return "PROCESS_MANAGER";
+        // Prefer live export radios over leftover "Gitterbox-Export" status text.
+        if (TryFindByAutomationId("Export_Target_Excel") is not null
+            && TryFindByAutomationId("Export_Records_All") is not null)
+            return "GITTERBOX_EXPORT";
+        if (TryFindByAutomationId("Spool_Grid") is not null) return "SPOOL_LIST";
+        if (TryFindByAutomationId("Zugang_Prozess") is not null || TryFindByAutomationId("Anlage_Prozess") is not null)
+            return "REPORT";
+        if (IsHomeVisible()) return "HOME";
+        return "UNKNOWN";
+    }
+
+    /// <summary>
+    /// After a validated export, close one Wilken child window at a time with
+    /// InternalWindow_Close until ProcessManager_Grid is visible. Verify after
+    /// every click. Never close the outer application window.
+    /// </summary>
+    private async Task ReplicaReturnToProcessManagerAsync(CancellationToken ct)
+    {
+        GuardHealthy();
+        DismissFunctionLockedIfPresent();
+
+        if (IsProcessManagerVisible())
+        {
+            _logger.LogInformation("Already on Prozesse verwalten; skip unwind.");
+            return;
+        }
+
+        var timeout = TimeSpan.FromSeconds(Math.Max(_options.NavigationTimeoutSeconds * 3, 90));
+        var deadline = DateTime.UtcNow + timeout;
+        var closes = 0;
+        const int maxCloses = 8;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            ThrowIfSessionLost();
+            DismissFunctionLockedIfPresent();
+
+            if (IsProcessManagerVisible())
+            {
+                _logger.LogInformation("Returned to Prozesse verwalten after {Closes} internal close(s).", closes);
+                return;
+            }
+
+            if (IsHomeVisible())
+            {
+                await ActivateReplicaControlAsync("Nav_ProzesseVerwalten", ct);
+                await WaitUntilUiAsync(
+                    () => IsProcessManagerVisible() || IsFunctionLockedVisible(),
+                    TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+                    "Prozesse verwalten from home", ct);
+                if (IsFunctionLockedVisible())
+                {
+                    DismissFunctionLockedIfPresent();
+                    continue;
+                }
+                return;
+            }
+
+            if (closes >= maxCloses)
+                break;
+
+            var close = TryFindByAutomationId("InternalWindow_Close");
+            if (close is null)
+            {
+                await Task.Delay(_options.PollingIntervalMs, ct);
+                continue;
+            }
+
+            var before = DetectReplicaScreenName();
+            _logger.LogInformation("InternalWindow_Close from {Screen}.", before);
+            InvokeControl(close);
+            closes++;
+            await Task.Delay(Math.Max(150, _options.PollingIntervalMs / 2), ct);
+
+            try
+            {
+                await WaitUntilUiAsync(
+                    () => IsProcessManagerVisible() || DetectReplicaScreenName() != before,
+                    TimeSpan.FromSeconds(12),
+                    $"screen change after InternalWindow_Close ({before})", ct);
+            }
+            catch (WaitTimeoutException)
+            {
+                _logger.LogWarning("InternalWindow_Close from {Screen} did not change the screen; retrying.", before);
+            }
+        }
+
+        throw new WilkenAutomationException("RETURN_TO_PROCESS_MANAGER_TIMEOUT",
+            "Could not return to Prozesse verwalten using InternalWindow_Close. ProcessManager_Grid was not visible.");
+    }
+
+    /// <summary>
+    /// Find by AutomationId without walking WPF DataGrid cells. A full descendant
+    /// search of Spool_Grid / ProcessManager_Grid can take tens of seconds and made
+    /// InternalWindow_Close look like it had frozen on Gitterbox-Export.
+    /// </summary>
     private AutomationElement? TryFindByAutomationId(string automationId)
     {
+        var enterGridRows = automationId.StartsWith("ProcessRow_", StringComparison.OrdinalIgnoreCase)
+            || automationId.StartsWith("Spool_Row_", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(automationId, "Spool_LatestDataRow", StringComparison.OrdinalIgnoreCase);
+
         foreach (var root in SearchRoots())
         {
             try
             {
-                var hit = root.FindFirstDescendant(cf => cf.ByAutomationId(automationId))
-                    ?? (root.AutomationId == automationId ? root : null);
+                var hit = FindByIdSkipGridCells(root, automationId, enterGridRows);
                 if (hit is not null) return hit;
             }
             catch { }
         }
+        return null;
+    }
+
+    private static AutomationElement? FindByIdSkipGridCells(
+        AutomationElement root, string automationId, bool enterGridRows)
+    {
+        try
+        {
+            if (string.Equals(root.AutomationId, automationId, StringComparison.Ordinal))
+                return root;
+        }
+        catch { }
+
+        var queue = new Queue<AutomationElement>();
+        queue.Enqueue(root);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            AutomationElement[] children;
+            try { children = current.FindAllChildren(); }
+            catch { continue; }
+
+            foreach (var child in children)
+            {
+                string? childId = null;
+                string? className = null;
+                try { childId = child.AutomationId; }
+                catch { }
+                if (string.Equals(childId, automationId, StringComparison.Ordinal))
+                    return child;
+
+                try { className = child.ClassName; }
+                catch { }
+
+                var isGrid = className is "DataGrid" or "ListView";
+                if (isGrid && !enterGridRows)
+                    continue;
+
+                queue.Enqueue(child);
+            }
+        }
+
         return null;
     }
 
@@ -872,7 +1156,7 @@ public partial class WindowsWilkenAutomationService
             if (depth > 6) return;
             try
             {
-                var name = node.Name;
+                var name = SafeUiName(node);
                 if (!string.IsNullOrWhiteSpace(name)) parts.Add(name);
                 var value = ReadValue(node);
                 if (!string.IsNullOrWhiteSpace(value)) parts.Add(value);

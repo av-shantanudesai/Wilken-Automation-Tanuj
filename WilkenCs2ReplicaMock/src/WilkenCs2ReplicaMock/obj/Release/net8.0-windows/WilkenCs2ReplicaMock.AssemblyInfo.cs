@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WilkenCs2ReplicaMock")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6dab03dbebad7e0e3363e253dd0018a3d1a250eb")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c9ce7d4a4b38987b5b1beb705f8c5e6f0604719d")]
 [assembly: System.Reflection.AssemblyProductAttribute("WilkenCs2ReplicaMock")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WilkenCs2ReplicaMock")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

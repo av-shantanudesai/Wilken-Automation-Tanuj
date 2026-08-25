@@ -334,6 +334,12 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         return tempPath;
     }
 
+    public async Task ReturnToProcessManagerAsync(CancellationToken ct)
+    {
+        if (IsReplica)
+            await ReplicaReturnToProcessManagerAsync(ct);
+    }
+
     public Task<bool> IsSessionHealthyAsync(CancellationToken ct)
     {
         var alive = TryIsAlive();
@@ -524,6 +530,13 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                 sessionLost: true);
     }
 
+    private static string SafeUiName(AutomationElement? element)
+    {
+        if (element is null) return "";
+        try { return element.Properties.Name.ValueOrDefault ?? ""; }
+        catch { return ""; }
+    }
+
     private Task WaitUntilUiAsync(Func<bool> condition, TimeSpan timeout, string description, CancellationToken ct)
         => WaitHelper.WaitUntilAsync(() =>
         {
@@ -536,6 +549,10 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
             catch (WilkenAutomationException)
             {
                 throw;
+            }
+            catch (Exception ex) when (ex.GetType().Name.Contains("PropertyNotSupported", StringComparison.Ordinal))
+            {
+                return false;
             }
             catch (Exception ex) when (ex is COMException or InvalidOperationException)
             {

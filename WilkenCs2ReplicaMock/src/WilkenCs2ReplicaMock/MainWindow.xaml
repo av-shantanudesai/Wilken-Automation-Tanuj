@@ -45,7 +45,7 @@
                     </Border>
                     <TreeView x:Name="NavigationTree" Grid.Row="3" Margin="7,0,4,0" Background="White"
                               BorderBrush="#7E96B6" BorderThickness="1" FontSize="11"
-                              MouseDoubleClick="NavigationTree_MouseDoubleClick"
+                              SelectedItemChanged="NavigationTree_SelectedItemChanged"
                               automation:AutomationProperties.AutomationId="Navigation_Tree"/>
                     <StackPanel Grid.Row="4">
                         <Border Background="#FFC24A" BorderBrush="#6785A6" BorderThickness="0,1,0,1" Padding="5"><TextBlock Text="◉  Navigation" FontWeight="Bold"/></Border>
@@ -65,9 +65,24 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <Border x:Name="WorkTitleBar" Grid.Row="0" Background="{StaticResource WilkenBlue}">
-                    <TextBlock x:Name="ScreenTitle" Foreground="White" FontSize="13" Margin="8,2,0,0"
-                               Text="Anlagenbuchhaltung - Zugangsliste erstellen"
-                               automation:AutomationProperties.AutomationId="Screen_Title"/>
+                    <Grid>
+                        <TextBlock x:Name="ScreenTitle" Foreground="White" FontSize="13" Margin="8,2,62,0"
+                                   Text="Anlagenbuchhaltung - Zugangsliste erstellen"
+                                   automation:AutomationProperties.AutomationId="Screen_Title"/>
+                        <!-- Internal Wilken child-window controls.  These are NOT the Windows/Citrix application buttons. -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Stretch">
+                            <Button x:Name="InternalRestoreButton" Width="25" Height="23" Margin="0,1,0,1"
+                                    Padding="0" Content="□" Foreground="White" Background="Transparent"
+                                    BorderThickness="0" ToolTip="Wiederherstellen" IsTabStop="False"
+                                    automation:AutomationProperties.AutomationId="InternalWindow_Restore"/>
+                            <Button x:Name="InternalCloseButton" Width="27" Height="23" Margin="0,1,1,1"
+                                    Padding="0" Content="×" FontSize="16" FontWeight="Bold" Foreground="White"
+                                    Background="#1F4E8C" BorderThickness="0" ToolTip="Schließen"
+                                    automation:AutomationProperties.Name="Schließen"
+                                    automation:AutomationProperties.AutomationId="InternalWindow_Close"
+                                    Click="InternalCloseButton_Click"/>
+                        </StackPanel>
+                    </Grid>
                 </Border>
                 <Border x:Name="WorkMenuBar" Grid.Row="1" Background="#E7F0FB" BorderBrush="#8CA1BC" BorderThickness="0,0,0,1">
                     <StackPanel Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
@@ -101,7 +116,19 @@
                         <ColumnDefinition x:Name="RightColumn" Width="215"/>
                     </Grid.ColumnDefinitions>
                     <Border Grid.Column="0" Background="{StaticResource WilkenBackground}" Padding="0">
-                        <ContentControl x:Name="MainContent"/>
+                        <Grid>
+                            <ContentControl x:Name="MainContent"/>
+                            <!-- Druckauswahl stays inside this work area (same tab as Prozesse verwalten), not a separate window. -->
+                            <Border x:Name="PrintSelectionOverlay" Visibility="Collapsed" Panel.ZIndex="20"
+                                    Background="#66000000">
+                                <Border HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="18,14,18,14"
+                                        Background="#B8D3F6" BorderBrush="#6E89AB" BorderThickness="1">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                        <ContentControl x:Name="PrintSelectionHost" Margin="0"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Border>
+                        </Grid>
                     </Border>
                     <Border x:Name="RightPanel" Grid.Column="1" Background="#D9E8FA" BorderBrush="#6E89AB" BorderThickness="1,0,0,0">
                         <Grid>

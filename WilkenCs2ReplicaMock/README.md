@@ -45,3 +45,8 @@ Stable `AutomationProperties.AutomationId` values are retained/expanded for FlaU
 ## Fidelity note
 
 The mock closely reproduces the observed labels, field defaults, workflow, screen proportions and state transitions. Exact proprietary Wilken icons/fonts and Citrix/browser chrome are not copied; use supplied screenshots as the final visual authority for pixel-level refinement.
+
+
+## Update: repeated-job close/unwind flow
+
+The mock now includes the internal Wilken child-window close X (`InternalWindow_Close`) shown in the test-environment screenshots. After an export, close Gitterbox → spool/list → report until `Prozesse verwalten` is visible before starting the next process. Re-opening `Prozesse verwalten` prematurely intentionally shows the `Funktion gesperrt` dialog. See `docs/AUTOMATION_WORKFLOW.md`.

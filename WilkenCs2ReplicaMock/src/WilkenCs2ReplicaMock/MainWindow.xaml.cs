@@ -5,7 +5,6 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
 using WilkenCs2ReplicaMock.Models;
@@ -25,6 +24,8 @@ public partial class MainWindow : Window
     private DataGrid? _spoolGrid;
     private string _screen = "Home";
     private int _protocolCount = 2;
+    private bool _openedFromProcessManager;
+    private SpoolLine? _latestDataMeta;
 
     private readonly ReportDefinition _zugang = new(
         ReportKind.Zugangsliste, "001", "Zugangsliste", "Handelsrecht", "Ist", "01/2020", "12/2020", 37,
@@ -87,55 +88,129 @@ public partial class MainWindow : Window
         processes.IsExpanded = true;
         definitions.IsExpanded = true;
         AutomationId(NavigationTree, "Navigation_Tree");
+
+        // UIA Invoke fallback: re-selecting an already-selected TreeView item does not
+        // fire SelectedItemChanged, which blocked the second job after Ausführen.
+        var openListe = HiddenAutomationButton("Nav_ListeAnzeigen_Open", "Liste anzeigen öffnen",
+            () => _ = ShowPrintSelectionAndSpoolAsync());
+        openListe.Width = 1;
+        openListe.Height = 1;
+        openListe.Opacity = 0.01;
+        openListe.Margin = new Thickness(0);
+        openListe.HorizontalAlignment = HorizontalAlignment.Left;
+        openListe.VerticalAlignment = VerticalAlignment.Top;
+        ((Grid)WorkTitleBar.Child).Children.Add(openListe);
     }
 
-    private TreeViewItem Node(string text, params TreeViewItem[] children) =>
+    private static TreeViewItem Node(string text, params TreeViewItem[] children) =>
         Node(text, null, children);
 
-    private TreeViewItem Node(string text, string? tag, params TreeViewItem[] children)
+    private static TreeViewItem Node(string text, string? tag, params TreeViewItem[] children)
     {
-        var item = new TreeViewItem { Tag = tag };
+        var item = new TreeViewItem { Header = text, Tag = tag };
         foreach (var child in children) item.Items.Add(child);
-        if (tag is not null)
-        {
-            var open = new Button
-            {
-                Content = text,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(0),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Cursor = Cursors.Hand
-            };
-            AutomationId(open, $"Nav_{tag}");
-            AutomationProperties.SetAutomationId(item, $"Nav_{tag}_Item");
-            open.Click += (_, _) => OpenNav(tag);
-            item.Header = open;
-        }
-        else
-        {
-            item.Header = text;
-        }
+        if (tag is not null) AutomationProperties.SetAutomationId(item, $"Nav_{tag}");
         return item;
     }
 
-    private void OpenNav(string tag)
+    private void NavigationTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is not TreeViewItem item || item.Tag is not string tag) return;
+        OpenNavigation(tag);
+    }
+
+    private void OpenNavigation(string tag)
     {
         switch (tag)
         {
-            case "Home": ShowHome(); break;
-            case "Zugangsliste": ShowZugangsliste(); break;
-            case "Anlagenspiegel": ShowAnlagenspiegel(_anlage); break;
-            case "ProzesseVerwalten": ShowProcessManager(); break;
-            case "ListeAnzeigen": _ = ShowPrintSelectionAndSpoolAsync(); break;
+            case "Home":
+                // Selecting the Anlagenbuchhaltung root only expands the tree. Do not unwind child windows.
+                break;
+            case "Zugangsliste":
+                _openedFromProcessManager = false;
+                ShowZugangsliste();
+                break;
+            case "Anlagenspiegel":
+                _openedFromProcessManager = false;
+                ShowAnlagenspiegel(_anlage);
+                break;
+            case "ProzesseVerwalten":
+                // Real Wilken keeps the process manager instance open underneath the child report/list/export windows.
+                // Re-opening it from Navigation while one of those child windows is active produces "Funktion gesperrt".
+                if (_openedFromProcessManager && (_screen is "Zugangsliste" or "Anlagenspiegel" or "Verdichtet" or "ListeBase" or "Spool" or "Export"))
+                    ShowFunctionLockedDialog();
+                else
+                    ShowProcessManager();
+                break;
+            case "ListeAnzeigen":
+                _ = ShowPrintSelectionAndSpoolAsync();
+                break;
         }
     }
 
-    private void NavigationTree_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    private void InternalCloseButton_Click(object sender, RoutedEventArgs e)
     {
-        if (NavigationTree.SelectedItem is not TreeViewItem item || item.Tag is not string tag) return;
-        OpenNav(tag);
+        // This is the small X inside the blue Wilken child-window title bar, not the operating-system close button.
+        // The real application must be unwound one active child window at a time after each export.
+        switch (_screen)
+        {
+            case "Export":
+                ShowSpool();
+                StatusText.Text = "Gitterbox-Export geschlossen";
+                break;
+
+            case "Spool":
+            case "ListeBase":
+                HidePrintSelectionOverlay();
+                ReturnToActiveReport();
+                StatusText.Text = "Liste anzeigen geschlossen";
+                break;
+
+            case "Zugangsliste":
+            case "Anlagenspiegel":
+            case "Verdichtet":
+                if (_openedFromProcessManager)
+                {
+                    ShowProcessManager();
+                    StatusText.Text = "Prozessübersicht";
+                }
+                else
+                {
+                    ShowHome();
+                }
+                break;
+
+            case "ProcessManager":
+                ShowHome();
+                break;
+        }
+    }
+
+    private void ReturnToActiveReport()
+    {
+        switch (_activeReport.Kind)
+        {
+            case ReportKind.Zugangsliste:
+                ShowZugangsliste();
+                break;
+            case ReportKind.AnlagenspiegelDetailliert:
+                ShowAnlagenspiegel(_anlage);
+                break;
+            default:
+                ShowAnlagenspiegel(_verdichtet);
+                break;
+        }
+    }
+
+    private void ShowFunctionLockedDialog()
+    {
+        // Defer so UIA SelectionItem.Select() can return. A synchronous ShowDialog
+        // here would block the worker on the same call that opened the lock dialog.
+        Dispatcher.BeginInvoke(() =>
+        {
+            var dialog = new FunctionLockedWindow { Owner = this };
+            dialog.ShowDialog();
+        }, DispatcherPriority.ApplicationIdle);
     }
 
     private async void ExecuteButton_Click(object sender, RoutedEventArgs e)
@@ -164,6 +239,7 @@ public partial class MainWindow : Window
 
     private void SetChrome(bool exportMode, bool processManager = false)
     {
+        HidePrintSelectionOverlay();
         WorkTitleRow.Height = new GridLength(25);
         WorkMenuRow.Height = new GridLength(20);
         WorkToolbarRow.Height = new GridLength(31);
@@ -213,6 +289,7 @@ public partial class MainWindow : Window
     {
         _screen = "Home";
         _selectedSpoolReport = null;
+        _openedFromProcessManager = false;
 
         WorkTitleRow.Height = new GridLength(0);
         WorkMenuRow.Height = new GridLength(0);
@@ -737,10 +814,37 @@ public partial class MainWindow : Window
 
     private async Task ShowPrintSelectionAndSpoolAsync()
     {
+        if (PrintSelectionOverlay.Visibility == Visibility.Visible)
+            return;
+
         ShowListeBase();
         await System.Windows.Threading.Dispatcher.Yield(DispatcherPriority.Background);
-        var dialog = new PrintSelectionWindow { Owner = this };
-        if (dialog.ShowDialog() != true) return;
+        ShowPrintSelectionOverlay();
+    }
+
+    private void ShowPrintSelectionOverlay()
+    {
+        if (PrintSelectionHost.Content is not PrintSelectionWindow)
+        {
+            var panel = new PrintSelectionWindow();
+            panel.Started += (_, _) => _ = ContinueFromPrintSelectionAsync();
+            panel.Cancelled += (_, _) => HidePrintSelectionOverlay();
+            PrintSelectionHost.Content = panel;
+        }
+
+        PrintSelectionOverlay.Visibility = Visibility.Visible;
+        StatusText.Text = "Druckauswahl";
+    }
+
+    private void HidePrintSelectionOverlay()
+    {
+        if (PrintSelectionOverlay is null) return;
+        PrintSelectionOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private async Task ContinueFromPrintSelectionAsync()
+    {
+        HidePrintSelectionOverlay();
         var profile = _timing.For(_activeReport.Kind);
         StatusText.Text = "Spool wird geladen...";
         await Task.Delay(profile.SpoolLoadMs);
@@ -754,7 +858,6 @@ public partial class MainWindow : Window
         ScreenTitle.Text = "Anlagenbuchhaltung - Liste anzeigen";
         ExecuteButton.Content = "";
         StatusText.Text = "Spool geladen";
-        Dispatcher.BeginInvoke(new Action(SelectCurrentPrtRow), DispatcherPriority.Loaded);
         StatusModule.Text = "CTPR";
         StatusPage.Text = "1/2";
         SetRightPanel(false, 1);
@@ -766,10 +869,8 @@ public partial class MainWindow : Window
         {
             ItemsSource = _spool, AutoGenerateColumns = false, SelectionMode = DataGridSelectionMode.Single, SelectionUnit = DataGridSelectionUnit.FullRow,
             IsReadOnly = true, HeadersVisibility = DataGridHeadersVisibility.Column, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
-            Background = Brushes.White, CanUserAddRows = false,
-            EnableRowVirtualization = false, EnableColumnVirtualization = false
+            Background = Brushes.White, CanUserAddRows = false
         };
-        VirtualizingPanel.SetIsVirtualizing(_spoolGrid, false);
         AutomationId(_spoolGrid, "Spool_Grid");
         AddCol(_spoolGrid, "Gebiet", "Gebiet", 58); AddCol(_spoolGrid, "Ko...", "Konzern", 42); AddCol(_spoolGrid, "M...", "Mandant", 48); AddCol(_spoolGrid, "W...", "Werk", 42);
         AddCol(_spoolGrid, "Erstelldatum", "Erstelldatum", 98); AddCol(_spoolGrid, "Uhrzeit", "Uhrzeit", 82); AddCol(_spoolGrid, "Listenname", "Listenname", 110); AddCol(_spoolGrid, "Erweiterung", "Erweiterung", 90);
@@ -780,11 +881,10 @@ public partial class MainWindow : Window
             if (e.Row.Item is not SpoolLine s) return;
             if (s.IsDescriptionLine) e.Row.Foreground = s.Beschreibung.StartsWith("Protokoll") ? Brushes.DarkRed : Brushes.DarkGreen;
             else e.Row.Foreground = new SolidColorBrush(Color.FromRgb(37, 74, 153));
-            if (s.IsCurrentRun)
-            {
-                AutomationId(e.Row, "Spool_CurrentPrt");
-                e.Row.Background = new SolidColorBrush(Color.FromRgb(255, 236, 179));
-            }
+            AutomationProperties.SetAutomationId(e.Row,
+                !s.IsDescriptionLine && ReferenceEquals(s, _latestDataMeta)
+                    ? "Spool_LatestDataRow"
+                    : $"Spool_Row_{s.Listenname}_{s.Erweiterung}_{s.Uhrzeit}");
         };
 
         var context = new ContextMenu();
@@ -792,72 +892,57 @@ public partial class MainWindow : Window
             context.Items.Add(new MenuItem { Header = h });
         var export = new MenuItem { Header = "Export" }; AutomationId(export, "Spool_Context_Export");
         export.Items.Add(new MenuItem { Header = "Exportiere als HTML-Format in Excel" });
-        var advanced = new MenuItem { Header = "Erweitert" }; AutomationId(advanced, "Spool_Context_ExportAdvanced");
-        advanced.Click += async (_, _) => await OpenAdvancedExportWithVisibleMenuAsync(alreadyOpen: true);
+        var advanced = new MenuItem { Header = "Erweitert" }; AutomationId(advanced, "Spool_Context_ExportAdvanced"); advanced.Click += (_, _) => OpenAdvancedExport();
         export.Items.Add(advanced); context.Items.Add(export); _spoolGrid.ContextMenu = context;
 
         Grid.SetRow(_spoolGrid, 0); grid.Children.Add(_spoolGrid);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
         var all = new Button { Content = "Alle auswählen", Width = 210, Margin = new Thickness(30, 14, 30, 8) }; AutomationId(all, "Spool_SelectAll");
         var none = new Button { Content = "Auswahl aufheben", Width = 210, Margin = new Thickness(30, 14, 30, 8) }; AutomationId(none, "Spool_ClearSelection");
-        none.Click += (_, _) => _spoolGrid.UnselectAll();
-        var selectCurrent = new Button { Content = "Aktuellen Lauf markieren", Width = 210, Margin = new Thickness(30, 14, 30, 8) };
-        AutomationId(selectCurrent, "Spool_SelectCurrentPrt");
-        selectCurrent.Click += (_, _) => SelectCurrentPrtRow();
-        var openAdvanced = new Button { Content = "Export → Erweitert", Width = 210, Margin = new Thickness(30, 14, 30, 8) };
-        AutomationId(openAdvanced, "Spool_OpenAdvancedExport");
-        openAdvanced.Click += async (_, _) => await OpenAdvancedExportWithVisibleMenuAsync(alreadyOpen: false);
-        buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(selectCurrent); buttons.Children.Add(openAdvanced);
-        Grid.SetRow(buttons, 1); grid.Children.Add(buttons);
+        // UIA-only path for Export → Erweitert. Near-invisible so the recorded spool chrome stays unchanged.
+        var openAdvanced = HiddenAutomationButton("Spool_OpenAdvancedExport", "Export → Erweitert", OpenAdvancedExport);
+        buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(openAdvanced); Grid.SetRow(buttons, 1); grid.Children.Add(buttons);
         MainContent.Content = grid;
+        _spoolGrid.Loaded += (_, _) => ScrollLatestSpoolRowIntoView();
+        ScrollLatestSpoolRowIntoView();
+    }
+
+    private void ScrollLatestSpoolRowIntoView()
+    {
+        if (_spoolGrid is null || _latestDataMeta is null) return;
+        _spoolGrid.UpdateLayout();
+        _spoolGrid.ScrollIntoView(_latestDataMeta);
+        _spoolGrid.SelectedItem = _latestDataMeta;
+    }
+
+    private static Button HiddenAutomationButton(string id, string name, Action click)
+    {
+        var button = new Button
+        {
+            Width = 16,
+            Height = 22,
+            Opacity = 0.15,
+            Padding = new Thickness(0),
+            Margin = new Thickness(4, 14, 0, 8),
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Focusable = true,
+            IsTabStop = false
+        };
+        AutomationId(button, id);
+        AutomationProperties.SetName(button, name);
+        button.Click += (_, _) => click();
+        return button;
     }
 
     private static void AddCol(DataGrid grid, string header, string path, double width) =>
         grid.Columns.Add(new DataGridTextColumn { Header = header, Binding = new Binding(path), Width = width });
 
-    private void SelectCurrentPrtRow()
-    {
-        if (_spoolGrid is null) return;
-        var row = _spool.FirstOrDefault(s => s.IsCurrentRun)
-                  ?? _spool.LastOrDefault(s => !s.IsDescriptionLine && s.Erweiterung == "PRT");
-        if (row is null) return;
-        _spoolGrid.SelectedItem = row;
-        _spoolGrid.UpdateLayout();
-        _spoolGrid.ScrollIntoView(row);
-        StatusText.Text = $"Ausgewählt: {row.Listenname} {row.Erweiterung} {row.Erstelldatum} {row.Uhrzeit} (dieser Lauf, nicht alle Spool-Zeilen)";
-    }
-
-    private async Task OpenAdvancedExportWithVisibleMenuAsync(bool alreadyOpen)
-    {
-        if (_spoolGrid?.SelectedItem is null)
-            SelectCurrentPrtRow();
-
-        if (!alreadyOpen && _spoolGrid?.ContextMenu is ContextMenu menu)
-        {
-            menu.PlacementTarget = _spoolGrid;
-            menu.Placement = PlacementMode.Center;
-            menu.IsOpen = true;
-            if (menu.Items.OfType<MenuItem>().FirstOrDefault(m => (m.Header as string) == "Export") is MenuItem export)
-                export.IsSubmenuOpen = true;
-            StatusText.Text = "Kontextmenü: Export → Erweitert";
-            await Task.Delay(800);
-            menu.IsOpen = false;
-        }
-
-        OpenAdvancedExport();
-    }
-
     private void OpenAdvancedExport()
     {
-        var selected = _spoolGrid?.SelectedItem as SpoolLine;
-        if (selected is null)
+        if (_spoolGrid?.SelectedItem is not SpoolLine selected)
         {
-            SelectCurrentPrtRow();
-            selected = _spoolGrid?.SelectedItem as SpoolLine;
-        }
-        if (selected is null)
-        {
-            MessageBox.Show(this, "Bitte zuerst eine Spool-Zeile auswählen.", "Wilken");
+            StatusText.Text = "Bitte zuerst eine Spool-Zeile auswählen.";
             return;
         }
         var index = _spool.IndexOf(selected);
@@ -865,7 +950,7 @@ public partial class MainWindow : Window
         if (selected.IsDescriptionLine && index > 0) logical = _spool[index - 1];
         if (logical?.ReportKind is null)
         {
-            MessageBox.Show(this, "Diese Spool-Zeile ist kein exportierbarer Bericht.", "Wilken");
+            StatusText.Text = "Diese Spool-Zeile ist kein exportierbarer Bericht.";
             return;
         }
         _selectedSpoolReport = logical.ReportKind switch
@@ -924,22 +1009,7 @@ public partial class MainWindow : Window
         var total = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(35, 29, 0, 0), VerticalAlignment = VerticalAlignment.Top };
         total.Children.Add(new TextBlock { Text = "Menge gesamt", Width = 205, VerticalAlignment = VerticalAlignment.Center });
         var totalBox = new TextBox { Text = report.RecordCount.ToString(), Width = 100, IsReadOnly = true, Background = new SolidColorBrush(Color.FromRgb(218, 230, 246)) };
-        AutomationId(totalBox, "Export_TotalRecords"); total.Children.Add(totalBox);
-        var run = new Button
-        {
-            Content = "✔  Export ausführen",
-            Width = 190,
-            Height = 28,
-            Margin = new Thickness(16, 0, 0, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0, 145, 58)),
-            Foreground = Brushes.White,
-            FontWeight = FontWeights.Bold,
-            ToolTip = "Gleicher Befehl wie der grüne Haken in der Symbolleiste"
-        };
-        AutomationId(run, "Export_Run");
-        run.Click += async (_, _) => await ExportAsync();
-        total.Children.Add(run);
-        Grid.SetColumn(total, 1); grid.Children.Add(total);
+        AutomationId(totalBox, "Export_TotalRecords"); total.Children.Add(totalBox); Grid.SetColumn(total, 1); grid.Children.Add(total);
         MainContent.Content = grid;
     }
 
@@ -959,30 +1029,28 @@ public partial class MainWindow : Window
     private static RadioButton Radio(string text, bool check, string id, string group)
     {
         var r = new RadioButton { Content = text, IsChecked = check, GroupName = group };
-        AutomationId(r, id);
-        r.Click += (_, _) => r.IsChecked = true;
-        return r;
-    }
-
-    private void CheckExportRadio(string id)
-    {
-        var radio = FindByAutomationId<RadioButton>(MainContent.Content as DependencyObject, id);
-        if (radio is not null) radio.IsChecked = true;
+        AutomationId(r, id); return r;
     }
 
     private async Task ExportAsync()
     {
         if (_selectedSpoolReport is null) return;
-        // Recorded Wilken starts on XLS; only XLSX writes a real file. Force the working format.
-        CheckExportRadio("Export_Format_XLSX");
-        CheckExportRadio("Export_Target_Excel");
-        CheckExportRadio("Export_Records_All");
+        var root = MainContent.Content as DependencyObject;
+        var xlsx = FindByAutomationId<RadioButton>(root, "Export_Format_XLSX");
+        var excel = FindByAutomationId<RadioButton>(root, "Export_Target_Excel");
+        var all = FindByAutomationId<RadioButton>(root, "Export_Records_All");
+        if (xlsx?.IsChecked != true || excel?.IsChecked != true || all?.IsChecked != true)
+        {
+            StatusText.Text = "Für den aufgezeichneten Workflow XLSX, Excel und Alle auswählen.";
+            return;
+        }
         ExecuteButton.IsEnabled = false;
         StatusText.Text = "XLSX wird exportiert...";
         await Task.Delay(_timing.For(_selectedSpoolReport.Kind).ExportMs);
         var path = _xlsx.Export(_selectedSpoolReport);
         ExecuteButton.IsEnabled = true;
         StatusText.Text = $"Export abgeschlossen: {path}";
+        // Intentionally no completion dialog: the recordings proceed directly to the browser/download UI.
     }
 
     private static T? FindByAutomationId<T>(DependencyObject? root, string id) where T : DependencyObject
@@ -1002,6 +1070,7 @@ public partial class MainWindow : Window
     {
         SetChrome(false, processManager: true);
         _screen = "ProcessManager";
+        _openedFromProcessManager = false;
         ScreenTitle.Text = "Anlagenbuchhaltung - Prozesse verwalten";
         ExecuteButton.Content = "";
         ExecuteButton.IsEnabled = false;
@@ -1056,8 +1125,8 @@ public partial class MainWindow : Window
         AddProcessCol(dg,"Status","Status",75); AddProcessCol(dg,"Zustand","Zustand",70); AddProcessCol(dg,"Prozess","ProzessCode",70); AddProcessCol(dg,"Letztes Laufdatum","LetztesLaufdatum",120); AddProcessCol(dg,"Nächstes Laufdatum","NaechstesLaufdatum",130); AddProcessCol(dg,"Rhythmus","Rhythmus",95);
         dg.LoadingRow += (_, e) =>
         {
-            if (e.Row.Item is not ProcessRow p) return;
-            AutomationId(e.Row, $"ProcessRow_{p.Programm}_{p.Prozess}");
+            if (e.Row.Item is ProcessRow row)
+                AutomationProperties.SetAutomationId(e.Row, $"ProcessRow_{row.Programm}_{row.Prozess}");
         };
         dg.MouseDoubleClick += (_, _) => OpenSelectedProcess(dg.SelectedItem as ProcessRow);
         dg.KeyDown += (_, e) => { if (e.Key == Key.Enter) OpenSelectedProcess(dg.SelectedItem as ProcessRow); };
@@ -1066,8 +1135,9 @@ public partial class MainWindow : Window
         var bottom = Group("Auswahl"); bottom.Margin = new Thickness(0, 15, 0, 0);
         var g = new Grid(); g.ColumnDefinitions.Add(new ColumnDefinition()); g.ColumnDefinitions.Add(new ColumnDefinition());
         var l = new StackPanel(); l.Children.Add(Row("Prozess", "", "ProcessManager_Filter")); l.Children.Add(Check("Alle Mandanten anzeigen", false, "ProcessManager_AllClients"));
-        var openSelected = new Button { Content = "Prozess öffnen", Width = 160, Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        var openSelected = new Button { Content = "Öffnen", Width = 90, Height = 22, Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
         AutomationId(openSelected, "ProcessManager_OpenSelected");
+        AutomationProperties.SetName(openSelected, "Öffnen");
         openSelected.Click += (_, _) => OpenSelectedProcess(dg.SelectedItem as ProcessRow);
         l.Children.Add(openSelected);
         var r = new StackPanel(); r.Children.Add(Row("Anzeige", "Alle Prozesse")); r.Children.Add(Row("Status ändern", "Keine"));
@@ -1081,9 +1151,11 @@ public partial class MainWindow : Window
     private void OpenSelectedProcess(ProcessRow? selected)
     {
         if (selected is null) return;
+        _openedFromProcessManager = true;
         if (selected.Bezeichnung == "Alle Anlagen nach Konten verdichtet") ShowAnlagenspiegel(_verdichtet);
         else if (selected.Bezeichnung == "Anlagenspiegel nach Anlagen") ShowAnlagenspiegel(_anlage);
         else if (selected.Bezeichnung == "Zugangsliste") ShowZugangsliste();
+        else _openedFromProcessManager = false;
     }
 
     private void SeedSpool()
@@ -1109,25 +1181,29 @@ public partial class MainWindow : Window
         SortSpoolRows();
     }
 
-    private void AddHistorical(ReportKind kind, string date, string time, string list, string ext, string description, string path, int page)
+    private SpoolLine AddHistorical(ReportKind kind, string date, string time, string list, string ext, string description, string path, int page)
     {
-        _spool.Add(new SpoolLine
+        var meta = new SpoolLine
         {
             Gebiet = "CSA", Konzern = "1", Mandant = "02", Erstelldatum = date, Uhrzeit = time,
             Listenname = list, Erweiterung = ext, Benutzer = "BHL", Drucker = "LOCW", Seite = page.ToString(),
             Disp = "K", Anzahl = "1", ReportKind = kind
-        });
+        };
+        _spool.Add(meta);
         _spool.Add(new SpoolLine
         {
             Gebiet = "STOP", Beschreibung = description, Pfad = path, IsDescriptionLine = true, ReportKind = kind
         });
+        return meta;
     }
 
     private void AddGeneratedSpool(ReportDefinition report)
     {
         // A successful report run creates two logical outputs in the recordings:
         // the PRT protocol and the actual data report. This is why the sidebar count rises by 2.
-        var now = SimulationNow();
+        // Generated rows must be dated "now" so the worker can correlate them to runStartedAt.
+        // Historical seed rows keep the recording dates (21.08.2026 and earlier).
+        var now = DateTime.Now;
         var date = now.ToString("dd.MM.yyyy");
         var stamp = now.ToString("HHmmss");
 
@@ -1140,15 +1216,9 @@ public partial class MainWindow : Window
         var dataExtension = report.Kind == ReportKind.Zugangsliste ? "001" : report.Extension;
         var dataPage = report.Kind == ReportKind.Zugangsliste ? 6 : report.Kind == ReportKind.AnlagenspiegelDetailliert ? 602 : 2;
         var dataDescription = $"{report.LogicalDescription}   {report.Fachbereich}   {report.Wertart}   {report.PeriodFrom}-{report.PeriodTo}";
-        AddHistorical(report.Kind, date, now.AddSeconds(20).ToString("HH:mm:ss"), dataList, dataExtension, dataDescription,
+        _latestDataMeta = AddHistorical(report.Kind, date, now.AddSeconds(20).ToString("HH:mm:ss"), dataList, dataExtension, dataDescription,
             $"/data/wilken/as/wlkp/cs2work/spool/CT{stamp}D.SPL", dataPage);
         SortSpoolRows();
-        foreach (var line in _spool) line.IsCurrentRun = false;
-        var newestData = _spool
-            .Where(s => !s.IsDescriptionLine && s.Listenname == dataList && s.Erweiterung == dataExtension)
-            .OrderByDescending(s => ParseSpoolDateTime(s.Erstelldatum, s.Uhrzeit))
-            .FirstOrDefault();
-        if (newestData is not null) newestData.IsCurrentRun = true;
     }
 
     private void SortSpoolRows()
@@ -1176,6 +1246,4 @@ public partial class MainWindow : Window
         return DateTime.TryParseExact($"{date} {time}", "dd.MM.yyyy HH:mm:ss", CultureInfo.InvariantCulture,
             DateTimeStyles.None, out var value) ? value : DateTime.MinValue;
     }
-
-    private static DateTime SimulationNow() => DateTime.Now;
 }

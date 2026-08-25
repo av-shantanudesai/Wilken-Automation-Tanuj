@@ -101,6 +101,11 @@ public class MockWilkenAutomationService : IWilkenAutomationService
             _job.SpoolId = $"SPL-{_job.ExportDefinition}-{_job.Client}-{Guid.NewGuid():N}"[..32];
     }
 
+    public async Task ReturnToProcessManagerAsync(CancellationToken ct)
+    {
+        await SimulatedAction("ReturnToProcessManager", ct);
+    }
+
     public async Task<string> ExportAsync(ExportJob job, CancellationToken ct)
     {
         await SimulatedAction("Export", ct);

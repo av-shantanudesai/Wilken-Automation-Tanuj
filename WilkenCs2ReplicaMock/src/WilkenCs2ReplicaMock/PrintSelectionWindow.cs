@@ -5,24 +5,28 @@ using System.Windows.Media;
 
 namespace WilkenCs2ReplicaMock;
 
-public sealed class PrintSelectionWindow : Window
+/// <summary>
+/// Druckauswahl panel hosted inside the same work area as Liste anzeigen /
+/// Prozesse verwalten. It is not a separate OS window.
+/// </summary>
+public sealed class PrintSelectionWindow : UserControl
 {
+    public event EventHandler? Started;
+    public event EventHandler? Cancelled;
+
     public PrintSelectionWindow()
     {
-        Title = "Druckauswahl";
-        Width = 1180;
-        Height = 590;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        ResizeMode = ResizeMode.NoResize;
+        MinWidth = 980;
         Background = new SolidColorBrush(Color.FromRgb(184, 211, 246));
         AutomationProperties.SetAutomationId(this, "PrintSelectionDialog");
+        AutomationProperties.SetName(this, "Druckauswahl");
 
-        var root = new Grid { Margin = new Thickness(55, 38, 55, 28) };
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(215) });
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(285) });
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(285) });
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
+        var root = new Grid { Margin = new Thickness(36, 24, 36, 18) };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
         for (var i = 0; i < 13; i++) root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(27) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(38) });
@@ -61,9 +65,11 @@ public sealed class PrintSelectionWindow : Window
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         var start = new Button { Content = "Start", Width = 190, Margin = new Thickness(0, 0, 45, 0) };
-        AutomationProperties.SetAutomationId(start, "PrintSelection_Start"); start.Click += (_, _) => { DialogResult = true; Close(); };
+        AutomationProperties.SetAutomationId(start, "PrintSelection_Start");
+        start.Click += (_, _) => Started?.Invoke(this, EventArgs.Empty);
         var cancel = new Button { Content = "Abbrechen", Width = 190 };
-        AutomationProperties.SetAutomationId(cancel, "PrintSelection_Cancel"); cancel.Click += (_, _) => { DialogResult = false; Close(); };
+        AutomationProperties.SetAutomationId(cancel, "PrintSelection_Cancel");
+        cancel.Click += (_, _) => Cancelled?.Invoke(this, EventArgs.Empty);
         buttons.Children.Add(start); buttons.Children.Add(cancel); Grid.SetColumn(buttons, 0); Grid.SetColumnSpan(buttons, 3); Grid.SetRow(buttons, 15); root.Children.Add(buttons);
         Content = root;
     }

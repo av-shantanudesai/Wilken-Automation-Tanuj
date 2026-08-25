@@ -1,454 +1,505 @@
-# Exact Wilken CS/2 export workflow for Cursor / FlaUI
+# Exact automation workflow for Cursor / FlaUI
 
-## Purpose
+## Goal
 
-This document is the behavioral source of truth for the .NET WPF Wilken CS/2 replica and for the later FlaUI automation worker. It is reconstructed from the three unique supplied recordings:
+Automate the same Wilken CS/2 workflow shown in the supplied recordings:
 
-- `ALDI 1.webm` / `ALDI 1(1).webm` (the two ALDI files are byte-for-byte identical)
-- `Zugangsliste 1.webm`
-- `Anlagenspiegel Detailliert nach Anlagen 1.webm`
+`Open report → set/verify fields → execute → wait for report generation → open Liste anzeigen → Druckauswahl → find exact new spool report → Export → Erweitert → XLSX + Excel + Alle → export → validate downloaded XLSX`.
 
-The automation must be state-driven. Do not replace modal/state detection with fixed sleeps.
+The worker must be state-driven. **Do not use a fixed `Thread.Sleep(30000)` or `Thread.Sleep(65000)` as the success condition.** The mock deliberately has realistic delays, but production automation must wait for UI states and use timeouts only as upper bounds.
 
-## Common state machine
+---
 
-`HOME → NAVIGATING → REPORT/PROCESS_MANAGER → CONFIGURED → CONFIRMATION → GENERATING → REPORT_READY → LISTE_ANZEIGEN → DRUCKAUSWAHL → SPOOL_LOADED → TARGET_PRT_SELECTED → CONTEXT_EXPORT → GITTERBOX_EXPORT → XLSX_SELECTED → EXPORT_TRIGGERED → FILE_DETECTED → FILE_STABLE → FILE_VALIDATED → RENAMED → SUCCESS`
+# Common shell
 
-## Common shell behavior
+Window title:
 
-1. Application starts on the Wilken home workspace.
-2. Left navigation remains visible.
-3. Report/process screens use the blue title strip, menu row, toolbar row, main workspace, right context pane, and bottom status bar.
-4. `System - Gitterbox-Export` hides the right context pane and uses the wider work area.
-5. `Liste anzeigen` is a real intermediate screen; do not jump directly to the spool grid.
+`1/02 - Frank Krauss GmbH & Co. KG - Wilken_CS/2_Finanzmanagement`
+
+Persistent layout:
+
+- Top blue application header.
+- Menu: `Allgemein`, `Aktionen`, `Hilfe`.
+- Toolbar below menu; execute/action icon exposed in mock as `AutomationId=Toolbar_Execute`.
+- Left `Navigation` tree.
+- Right side panels: `Dokumente`, `Protokolle/Listen`, `Notizen`, `Tooltips`, `Folgeaktionen`, `Informationen`.
+- Bottom status bar contains user `BHL`.
+
+Preferred locator order:
+
+1. UI AutomationId.
+2. Control type + Name/Text.
+3. Parent/child relationship.
+4. Keyboard navigation.
+5. Image/template matching.
+6. Coordinates only as the last fallback.
+
+## Mandatory repeated-job return-to-start sequence
+
+This behavior was confirmed from the test-environment screenshots and is **mandatory for every repeated/batch job**. Wilken keeps `Prozesse verwalten` open underneath the report/list/export child windows. If automation tries to open `Prozesse verwalten` again from the left navigation while those child windows are still active, Wilken can show:
+
+`Funktion gesperrt`
+
+with text equivalent to:
+
+`Die angeforderte Funktion "CAD18" ist derzeit gesperrt, da sie bereits in einem anderen Prozess verwendet wird.`
+
+Therefore **never navigate to `Prozesse verwalten` again to start the next job while the current child windows are still open.**
+
+After the XLSX has been created and validated, unwind the open Wilken child windows using the **small X in the top-right corner of the blue Wilken child-window title bar**. This is **not** the Windows/Citrix/application close button in the outermost title bar.
+
+Mock locator for this internal close control:
+
+`AutomationId=InternalWindow_Close`
+
+Expected unwind sequence after export:
+
+1. Current screen = `System - Gitterbox-Export` → click internal X.
+2. Verify return to `Anlagenbuchhaltung - Liste anzeigen` / spool grid.
+3. Click the same internal X again.
+4. Verify return to the active report definition, for example `Anlagenbuchhaltung - Anlagenspiegel erstellen` or `Anlagenbuchhaltung - Zugangsliste erstellen`.
+5. Click the same internal X again.
+6. Verify return to `Anlagenbuchhaltung - Prozesse verwalten`.
+7. Verify the process grid is visible (`AutomationId=ProcessManager_Grid`).
+8. Only now select/double-click the next process row and start the next job.
+
+Do **not** count X clicks blindly. After every click, wait for and verify the expected screen title/control. If an intermediate screen is not present, continue closing until `Prozesse verwalten` is positively detected. Stop closing as soon as the process-manager grid is visible; do not close the whole Wilken application.
+
+For the mock, intentionally attempting to open `Prozesse verwalten` again while a process-manager child workflow is active displays `FunctionLockedDialog`, matching this real-system behavior.
+
+### Recommended batch loop
+
+`Prozesse verwalten`
+→ `select exact process row`
+→ `open/run report`
+→ `Liste anzeigen`
+→ `Druckauswahl`
+→ `spool`
+→ `Export → Erweitert`
+→ `XLSX + Excel + Alle`
+→ `green toolbar execute`
+→ `validate XLSX`
+→ `internal X until Prozesse verwalten`
+→ `verify ProcessManager_Grid`
+→ `next process`.
 
 ---
 
 # Workflow A — Zugangsliste
 
-## A1. Open the report
+## A1. Open the report screen
 
-Navigation path used by the replica:
+For the **repeated automation/batch loop**, start from the already-open:
 
-`Anlagenbuchhaltung → Prozesse → Einzeldefinitionen → Zugangsliste erstellen`
+`Anlagenbuchhaltung - Prozesse verwalten`
 
-Expected title:
+Locate the process row by values:
+
+- Programm = `CAB024`
+- Prozess = `001`
+- Bezeichnung = `Zugangsliste`
+
+Select the exact row and double-click it. Verify the expected screen title:
 
 `Anlagenbuchhaltung - Zugangsliste erstellen`
 
-Expected header:
+The direct navigation path remains available for manual/single-flow testing:
 
-- label `Prozess`
-- top process input = blank, yellow/editable
-- process below = `001`
-- label `Bezeichnung`
-- language = `D`
-- description = `Zugangsliste`
-- tabs = `Steuerung`, `Laufprotokoll`
+`Anlagenbuchhaltung → Prozesse → Einzeldefinitionen → Zugangsliste erstellen`
 
-## A2. Verify Steuerung
+Mock direct-navigation locator: `AutomationId=Nav_Zugangsliste`.
 
-### Modus
+For unattended repeated jobs, prefer the process-manager row so the workflow has one consistent start/end point.
 
-- `Aktiv` = checked
-- `Automatisch deaktivieren` = unchecked
-- `Laufprotokoll` = unchecked
+## A2. Verify/set report fields
 
-### Laufsteuerung
+Set or verify these exact values:
 
-- `Rhythmus` = blank
-- `Nächstes Laufdatum` = blank
-- `Letztes Laufdatum` = `19.08.2026` before the recorded run
+| Field | Value | Mock AutomationId |
+|---|---|---|
+| Prozess | `001` | `Zugang_Prozess` |
+| Bezeichnung | `Zugangsliste` | `Zugang_Bezeichnung` |
+| Aktiv | checked | `Field_Aktiv` |
+| Automatisch deaktivieren | unchecked | `Field_AutoDeactivate` |
+| Laufprotokoll | unchecked | `Field_Laufprotokoll` |
+| Art | `Bericht` | `Zugang_Art` |
+| Bericht | `NACH ANLAGEN` | `Zugang_Bericht` |
+| Fachbereich | `Handelsrecht` | `Zugang_Fachbereich` |
+| Wertart/Plan | `Ist` | `Zugang_Wertart` |
+| Zugangsdatum von | `01.01.2020` | `Zugang_DateFrom` |
+| Zugangsdatum bis | `31.12.2020` | `Zugang_DateTo` |
+| Zeitraum | `01/2020`–`12/2020` | `Zugang_Period` |
+| Erstellung Art | `Druckversion` | `Field_ErstellungArt` |
+| Summe für Anlagenhauptnummer | unchecked | `Field_SumMainAsset` |
+| Mit Umbuchungs-Gegenkonto bei Kontenselektion | unchecked | `Zugang_Gegenkonto` |
+| Umbuchung Bilanzposition | checked | `Zugang_UmbuchungBilanzposition` |
+| Umbuchung Anlage | checked | `Zugang_UmbuchungAnlage` |
 
-### Status
+Before execution record a correlation object:
 
-- `Bearbeitungszustand` = `OK`
-- `Letzter Returncode` = blank
-- `Letzte Fehlernummer` = blank
+`{report=Zugangsliste, process=001, fachbereich=Handelsrecht, period=01/2020-12/2020, runStartedAt=<timestamp>, user=BHL}`.
 
-### Auswahl
+## A3. Execute
 
-- `Art` = `Bericht`
-- `Bericht` = `NACH ANLAGEN`
-- `Fachbereich` = `Handelsrecht`
-- `Wertart/Plan` = `Ist`
-- secondary plan/code field = `0`
-- column labels = `Von` / `Bis`
-- `Zugangsdatum` = `01.01.2020` to `31.12.2020`
-- `Zeitraum` = `01 / 2020` to `12 / 2020`
+Click toolbar execute/action control.
 
-### Erstellung
-
-- `Art` = `Druckversion`
-- `Summe für Anlagenhauptnummer` = unchecked
-- `Mit Umbuchungs-Gegenkonto bei Kontenselektion` = unchecked
-
-### Buchungsart
-
-- `Umbuchung Bilanzposition` = checked
-- `Umbuchung Anlage` = checked
-
-### Berechtigung / Fremdwährung
-
-Visible fields must remain present:
-
-- `Verwalten`
-- `Ausführen`
-- `Währungsschlüssel`
-- `Kennzeichen`
-
-Before Execute, capture correlation information:
-
-`report=Zugangsliste, process=001, fachbereich=Handelsrecht, period=01/2020-12/2020, user=BHL, runStartedAt=<current time>`
-
-## A3. Execute and confirm
-
-Click the toolbar Execute/check action.
-
-Expected modal:
-
-- window title: `Zugangsliste`
-- text: `Die angeforderte Liste erstellen?`
-- buttons: `Ja`, `Abbrechen`
-
-Click `Ja`.
-
-## A4. Wait for report processing
+Mock locator: `AutomationId=Toolbar_Execute`.
 
 Expected progress window:
 
-- title: `Fortschritt`
-- recorded visible message: `Ermitteln der Werte gestartet.`
+- Window: `Fortschritt`
+- Mock window AutomationId: `ProgressDialog`
+- Message: `Erstellen der Zugangsliste gestartet.`
+- Message locator: `Progress_Message`
 
-Do not navigate while the progress window exists. Continue only after it closes.
+Wait rule:
 
-After the run, the mock adds **two logical spool outputs** and increases `Protokolle/Listen` by 2:
+- Wait for the progress dialog to appear.
+- Then wait for it to disappear.
+- Suggested hard timeout for the real system: start with 2 minutes and make it configurable.
+- Do not infer failure merely because it takes longer than the ~30 s observed benchmark.
 
-1. protocol output: `B024 / PRT` followed by `STOP  Protokoll: Zugangsliste`
-2. data output: `5J0102 / 001` followed by the Zugangsliste report description
+## A4. Open spool list
 
-`Letztes Laufdatum` becomes `21.08.2026` in the replica.
-
-## A5. Open Liste anzeigen
-
-Navigate to:
+After progress disappears, open:
 
 `Anlagenbuchhaltung → Liste anzeigen`
 
-Expected main title first:
+Mock locator: `AutomationId=Nav_ListeAnzeigen`.
 
-`Anlagenbuchhaltung - Liste anzeigen`
+Expected dialog: `Druckauswahl` / `AutomationId=PrintSelectionDialog`.
 
-The underlying screen becomes visible before the dialog:
+## A5. Druckauswahl
 
-- white/blank list area
-- bottom button `Alle auswählen`
-- bottom button `Auswahl aufheben`
+The recording uses the Druckauswahl window before displaying spool rows.
 
-Then the `Druckauswahl` dialog opens.
+Visible sort fields:
 
-## A6. Druckauswahl
+`Konzern, Mandant, Werk, Version/Release, Gebiet, Listenname, Programmname, Terminal, Drucker, Erstelldatum, Status, Benutzer, Listenbezeichnung`.
 
-Expected dialog title:
+Recorded values include:
 
-`Druckauswahl`
+- Konzern `1`
+- Mandant `02`
+- Version/Release `3 / 0`
+- Gebiet `CSA`
+- Benutzer `BHL`
+- Sortierung: `Listenname`
 
-Expected columns:
+For robust automation, do not overfilter unless needed. At minimum verify user/mandant context and click:
 
-- `Sortierung`
-- `Von/nur Wert`
-- `Bis Wert`
-- `Auswahl`
-- `E/A`
+`Start` / mock `AutomationId=PrintSelection_Start`.
 
-Expected sort/filter rows:
+## A6. Identify the exact new spool report
 
-1. Konzern
-2. Mandant
-3. Werk
-4. Version/Release
-5. Gebiet
-6. Listenname
-7. Programmname
-8. Terminal
-9. Drucker
-10. Erstelldatum
-11. Status
-12. Benutzer
-13. Listenbezeichnung
+Spool grid mock locator: `AutomationId=Spool_Grid`.
 
-Recorded/default values represented by the mock:
+Do **not** right-click the first row or any arbitrary row.
 
-- Konzern = `1`
-- Mandant = `02`
-- Version/Release = `3 / 0`
-- Gebiet = `CSA`
-- Benutzer = `BHL`
-- sorting radio = `Listenname`
-- `Alle anzeigen` = unchecked
+Target selection criteria, strongest to weakest:
 
-Click `Start`.
+1. Created after `runStartedAt`.
+2. User = `BHL`.
+3. Mandant = `02`.
+4. Report description = `Zugangsliste`.
+5. Fachbereich = `Handelsrecht`.
+6. Period = `01.2020-12.2020`.
+7. Choose newest matching creation time.
 
-## A7. Spool list — exact recorded selection behavior
+Spool presentation detail:
 
-The spool contains many historical rows. Each logical output is represented by a blue `CSA` metadata row and a following `STOP` description/path row.
+- The grid often shows a `CSA` metadata row followed by a `STOP` description/path row.
+- Select the `CSA` metadata row logically associated with the matching `STOP Zugangsliste ...` description row.
+- A `Protokoll: Zugangsliste` row is a log/protocol output and is not the same as the requested report data row.
 
-**Important correction from the video re-review:** in the supplied recording, the user right-clicks the newest matching **protocol metadata row**, not the green data-description row.
+## A7. Open advanced export
 
-For Zugangsliste, the recorded target pattern is:
+Right-click selected report row.
 
-- blue metadata row: `CSA ... B024 ... PRT ... BHL ...`
-- following description row: `STOP  Protokoll: Zugangsliste`
-
-The mock therefore requires the automation workflow to find/select the newest `B024 / PRT` row for the current run.
-
-Correlation rules:
-
-- Gebiet = `CSA`
-- Mandant = `02`
-- Listenname = `B024`
-- Erweiterung = `PRT`
-- Benutzer = `BHL`
-- creation date/time >= `runStartedAt`
-- following STOP line = `Protokoll: Zugangsliste`
-
-Do **not** select an arbitrary row simply because it is highlighted.
-
-## A8. Context menu
-
-Right-click the selected blue `CSA / B024 / PRT` row.
-
-Follow exactly:
+Context sequence:
 
 `Export → Erweitert`
 
-Do not choose:
+Mock AutomationIds:
 
-`Exportiere als HTML-Format in Excel`
+- `Spool_Context_Export`
+- `Spool_Context_ExportAdvanced`
 
-## Critical: how the export is actually started
-
-There is **no separate text button named `Export` inside the Gitterbox form** in the recordings.
-After `right-click → Export → Erweitert` opens `System - Gitterbox-Export`, configure the fields and then click the **green check / execute icon in the top Wilken toolbar**.
-
-Exact action:
-
-`XLS → XLSX` → keep `Ziel = Excel` → keep `Datensätze = Alle` → click **top toolbar green ✓ (`Export ausführen`)** → wait for the `.xlsx` file.
-
-For FlaUI, keep the stable automation id `Toolbar_Execute`; when the current screen is `System - Gitterbox-Export`, that control means **Export ausführen**, not report generation.
-
-## A9. System - Gitterbox-Export
-
-Expected title:
+Expected screen title:
 
 `System - Gitterbox-Export`
 
-Expected fields/state:
+## A8. Set export parameters
 
-- `Beschreibung` = blank
-- `Tabellenname` = `CTLP1`
-- `Menge gesamt` = `37`
-- initial Format = **XLS**
-- Ziel = `Excel`
-- Datensätze = `Alle`
-- Von/bis = `1` to `37`
+Expected values:
 
-Format choices visible:
+- Tabellenname: `CTLP1`
+- Menge gesamt: `37`
+- Format: `XLSX`
+- Ziel: `Excel`
+- Datensätze: `Alle`
+- Range display: `1` to `37`
 
-- CSV
-- XML
-- HTML
-- XLS
-- XLSX
+Mock locators:
 
-Explicitly change:
+- XLSX: `Export_Format_XLSX`
+- Excel: `Export_Target_Excel`
+- Alle: `Export_Records_All`
+- Count: `Export_TotalRecords`
 
-`XLS → XLSX`
+Always explicitly ensure `XLSX` is selected; do not trust remembered/default state.
 
-Then click the toolbar Execute/check action.
+## A9. Export and validate file
 
-## A10. File completion
+Trigger the toolbar export/action control: `Toolbar_Execute`.
 
-The recording does not show an additional Wilken success modal. Detect the exported file outside the report page.
+Expected mock filename:
 
-Expected generated name in the replica:
+`%USERPROFILE%\Downloads\CTLP12.xlsx`
 
-`CTLP12.xlsx`
+Production validation sequence:
 
-If it already exists:
+1. Snapshot download directory before triggering export.
+2. Trigger export.
+3. Detect a newly created `.xlsx` file after the trigger time.
+4. Wait until file size is stable across at least two checks.
+5. Ensure file is not locked for exclusive write.
+6. Verify ZIP/XLSX structure can be opened.
+7. Verify row/header content is non-corrupt; empty-data reports should be treated according to business rules, not automatically as failure.
+8. Immediately move/rename to deterministic job filename.
 
-`CTLP12 (1).xlsx`, `CTLP12 (2).xlsx`, etc.
+Recommended deterministic name:
 
-Automation completion checks:
+`{Client}_{Year}_{Department}_Zugangsliste.xlsx`
 
-1. new `.xlsx` created after export trigger
-2. size stops changing
-3. file can be opened without write lock
-4. XLSX ZIP/package structure is valid
-5. rename/move to deterministic job path
-6. only then mark Success
+## A10. Close child windows and return to Prozesse verwalten
+
+After the file is validated, perform the **Mandatory repeated-job return-to-start sequence** from the Common shell section. Do not click `Prozesse verwalten` from the navigation tree again. Use `InternalWindow_Close` repeatedly with screen verification until `ProcessManager_Grid` is visible, then begin the next job.
 
 ---
 
 # Workflow B — Anlagenspiegel Detailliert nach Anlagen
 
-## B1. Open
+## B1. Open screen
 
-Navigation:
-
-`Anlagenbuchhaltung → Prozesse → Einzeldefinitionen → Anlagenspiegel erstellen`
-
-Expected title:
-
-`Anlagenbuchhaltung - Anlagenspiegel erstellen`
-
-Expected header:
-
-- top process input = blank/yellow
-- process below = `001`
-- language = `D`
-- description = `Anlagenspiegel nach Anlagen`
-- tabs = `Steuerung`, `Sortierung für Liste`, `Laufprotokoll`
-
-## B2. Sortierung für Liste
-
-The recording exposes this tab; it must not be empty.
-
-Replica values:
-
-- sort row 1 = `Hauptkonto`
-- row 1 `Summen` = checked
-- row 1 `Seitenwechsel` = unchecked
-- sort row 2 = `Anlagennummer`
-- remaining sort rows = blank
-- `Betragseinschränkung`
-- `AHK` = `0.00`
-- `Restbuchwert` = `0.00`
-
-Return to `Steuerung` before execution.
-
-## B3. Steuerung
-
-### Modus
-
-- `Aktiv` = checked
-- `Automatisch deaktivieren` = unchecked
-- `Laufprotokoll` = checked
-
-### Auswahl
-
-- `Art` = `Kompletter Datenbestand`
-- `Bericht` = blank/disabled
-- `Fachbereich` = `Steuerrecht`
-- `Wertart/Plan` = `Ist`
-- secondary value = `0`
-- `Zeitraum` = `01 / 2021` to `12 / 2021`
-
-### Erstellung
-
-- `Art` = `Druckversion`
-- `Summe für Anlagenhauptnummer` = unchecked
-
-### Einzelne Buchungen für Anlagen
-
-- `Zugänge` = checked
-- `Abgänge` = checked
-- `Umbuchung Anlage` = checked
-
-Capture `runStartedAt` before execution.
-
-## B4. Execute / confirmation
-
-Click Execute.
-
-Expected modal:
-
-- title: `Anlagenspiegel`
-- text: `Anlagenspiegel erstellen?`
-- buttons: `Ja`, `Abbrechen`
-
-Click `Ja`.
-
-## B5. Progress states
-
-Wait through the same `Fortschritt` window as its text changes:
-
-1. `Anlagenselektion gestartet.`
-2. `Ermitteln der Werte gestartet.`
-3. `Der Anlagenspiegel wird erstellt.`
-
-The value-calculation stage is the longest visible processing period.
-
-A successful run creates two spool outputs:
-
-1. `B015 / PRT` + `STOP  Protokoll: Anlagenspiegel`
-2. `4J0402 / 001` + `STOP  Anlagenspiegel nach Anlagen ...`
-
-## B6. Liste anzeigen / Druckauswahl
-
-Repeat A5 and A6 exactly.
-
-## B7. Select the recorded PRT row
-
-For the recorded detailed Anlagenspiegel export, select the newest current-run:
-
-- Gebiet = `CSA`
-- Listenname = `B015`
-- Erweiterung = `PRT`
-- Benutzer = `BHL`
-- creation time >= `runStartedAt`
-- next STOP row = `Protokoll: Anlagenspiegel`
-
-Right-click that metadata row.
-
-## B8. Export
-
-`Export → Erweitert`
-
-Expected Gitterbox values:
-
-- Tabellenname = `CTLP1`
-- Menge gesamt = `31`
-- initial Format = `XLS`
-- Ziel = `Excel`
-- Datensätze = `Alle`
-- range = `1` to `31`
-
-Change `XLS → XLSX`, then Execute and validate the generated file.
-
----
-
-# Workflow C — Alle Anlagen nach Konten verdichtet (ALDI recording)
-
-## C1. Start from Home
-
-The ALDI recording begins at the Wilken home workspace.
-
-Navigation:
-
-`Anlagenbuchhaltung → Prozesse → Prozesse verwalten`
-
-## C2. Prozesse verwalten
-
-Expected title:
+For the **repeated automation/batch loop**, start from:
 
 `Anlagenbuchhaltung - Prozesse verwalten`
 
-Visible grid columns:
+Locate the process row by values:
 
-- Mandant
-- Werk
-- Programm
-- Prozess
-- Bezeichnung
-- Status
-- Zustand
-- Prozess (code)
-- Letztes Laufdatum
-- Nächstes Laufdatum
-- Rhythmus
+- Programm = `CAB015`
+- Prozess = `001`
+- Bezeichnung = `Anlagenspiegel nach Anlagen`
 
-Find/open:
+Select the exact row and double-click it. Verify:
+
+`Anlagenbuchhaltung - Anlagenspiegel erstellen`
+
+The direct navigation path remains available for manual/single-flow testing:
+
+`Anlagenbuchhaltung → Prozesse → Einzeldefinitionen → Anlagenspiegel erstellen`
+
+Mock direct-navigation locator: `Nav_Anlagenspiegel`.
+
+For unattended repeated jobs, prefer the process-manager row so every completed job can unwind back to the same starting grid.
+
+## B2. Verify/set fields
+
+| Field | Value | Mock AutomationId |
+|---|---|---|
+| Prozess | `001` | `Anlage_Prozess` |
+| Bezeichnung | `Anlagenspiegel nach Anlagen` | `Anlage_Bezeichnung` |
+| Aktiv | checked | `Field_Aktiv` |
+| Automatisch deaktivieren | unchecked | `Field_AutoDeactivate` |
+| Laufprotokoll | checked | `Field_Laufprotokoll` |
+| Art | `Kompletter Datenbestand` | `Anlage_Art` |
+| Bericht | blank/disabled | `Anlage_Bericht` |
+| Fachbereich | `Steuerrecht` | `Anlage_Fachbereich` |
+| Wertart/Plan | `Ist` | `Anlage_Wertart` |
+| Zeitraum | `01/2021`–`12/2021` | `Anlage_Period` |
+| Erstellung Art | `Druckversion` | `Field_ErstellungArt` |
+| Summe für Anlagenhauptnummer | unchecked | `Field_SumMainAsset` |
+| Zugänge | checked | `Anlage_Zugaenge` |
+| Abgänge | checked | `Anlage_Abgaenge` |
+| Umbuchung Anlage | checked | `Anlage_Umbuchung` |
+
+## B3. Execute and confirm
+
+Click `Toolbar_Execute`.
+
+Expected confirmation:
+
+`Anlagenspiegel erstellen?`
+
+Click `Ja` / `AutomationId=Confirm_Yes`.
+
+## B4. Wait through both processing phases
+
+Observed phase 1:
+
+`Ermitteln der Werte gestartet.`
+
+Observed phase 2:
+
+`Der Anlagenspiegel wird erstellt.`
+
+Automation rule:
+
+- Wait for progress dialog.
+- Treat both message changes as normal states.
+- Continue waiting until the progress dialog disappears.
+- Never click through or assume completion when text changes from phase 1 to phase 2.
+
+Approximate measured total export benchmark: **~1 min 5 sec**.
+
+Use a configurable hard timeout much larger than this benchmark (for example several minutes) in the real environment.
+
+## B5. Liste anzeigen / Druckauswahl / spool
+
+Use the same common sequence as A4–A6.
+
+Target spool criteria:
+
+1. Created after `runStartedAt`.
+2. User `BHL`.
+3. `Anlagenspiegel nach Anlagen`.
+4. `Steuerrecht`.
+5. `Ist`.
+6. `01.2021-12.2021`.
+7. Newest matching creation time.
+
+Do not accidentally select:
+
+- `Alle Anlagen nach Konten verdichtet`
+- `Protokoll: Anlagenspiegel`
+- an older `Anlagenspiegel nach Anlagen` entry from a previous run
+
+## B6. Export advanced
+
+Right-click exact selected metadata row:
+
+`Export → Erweitert`
+
+Expected `System - Gitterbox-Export`:
+
+- Tabellenname = `CTLP1`
+- Menge gesamt = `31`
+- **XLS is initially selected in the recording**
+- Ziel = `Excel`
+- Datensätze = `Alle`
+
+Therefore the automation **must change XLS → XLSX** explicitly.
+
+Then export and validate exactly as A9.
+
+Recommended filename:
+
+`{Client}_{Year}_{Department}_Anlagenspiegel_Detailliert_nach_Anlagen.xlsx`
+
+## B7. Close child windows and return to Prozesse verwalten
+
+After XLSX validation, unwind `Gitterbox-Export → Liste anzeigen/spool → Anlagenspiegel erstellen` with the internal blue-title-bar X (`InternalWindow_Close`) until `Anlagenbuchhaltung - Prozesse verwalten` and `ProcessManager_Grid` are visible. Only then start the next process.
+
+---
+
+# Workflow C — Alle Anlagen nach Konten verdichtet (ALDI recording, re-verified)
+
+This workflow was re-checked against the full `ALDI 1(2).webm` recording. The critical `00:18–00:33` segment is documented explicitly below because it contains an important transition that must not be skipped: **the operator first opens `Prozesse verwalten`, selects saved process `003`, and opens that saved process definition before executing it.**
+
+## C0. Timestamp-verified sequence: 00:18–00:33
+
+Follow this exact order:
+
+1. **~00:18 — Navigation / idle shell**
+   - Stay under `Anlagenbuchhaltung → Prozesse` in the left navigation tree.
+   - Click `Prozesse verwalten`.
+
+2. **~00:20 — `Anlagenbuchhaltung - Prozesse verwalten` opens**
+   - A process grid is displayed.
+   - Do **not** navigate directly to `Anlagenspiegel erstellen` for this recorded flow.
+   - The process must be opened from the process-management grid.
+
+3. **~00:26 — Select the saved process row**
+   Select the row with all of these identifying values:
+
+   | Column | Recorded value |
+   |---|---|
+   | Mandant | `02` |
+   | Programm | `CAB015` |
+   | Prozess | `003` |
+   | Bezeichnung | `Alle Anlagen nach Konten verdichtet` |
+   | Status | `AKTIV` |
+   | Zustand | `OK` |
+   | Process/type column | `CA45` |
+   | Letztes Laufdatum | `21.08.2026` in this recording |
+
+   - First ensure this exact row is selected/highlighted.
+   - Then **double-click the selected row** to open its saved definition.
+   - Never choose a row only by its visible position because the grid can contain many processes and the order can change.
+
+4. **~00:27 — Saved process opens in `Anlagenbuchhaltung - Anlagenspiegel erstellen`**
+   - The screen is populated from saved process `003`.
+   - Verify that `Prozess = 003` and `Bezeichnung = Alle Anlagen nach Konten verdichtet` are loaded before continuing.
+   - This is not a blank/new report definition.
+
+5. **~00:27–00:32 — Verify the loaded saved-process configuration**
+   The `Steuerung` tab is active. Verify the recorded values:
+
+   - `Aktiv` = checked
+   - `Automatisch deaktivieren` = unchecked
+   - `Laufprotokoll` = checked
+   - `Art` = `Kompletter Datenbestand`
+   - `Bericht` = blank/disabled
+   - `Fachbereich` = `Steuerrecht`
+   - `Wertart/Plan` = `Ist`
+   - `Zeitraum von` = `01 / 2021`
+   - `Zeitraum bis` = `12 / 2021`
+   - `Erstellung → Art` = `Druckversion`
+   - `Summe für Anlagenhauptnummer` = unchecked
+   - `Zugänge` = unchecked
+   - `Abgänge` = unchecked
+   - `Umbuchung Anlage` = unchecked
+   - `Bearbeitungszustand` = `OK`
+
+   Also preserve the visible tabs:
+   - `Steuerung`
+   - `Sortierung für Liste`
+   - `Laufprotokoll`
+
+   The right `Folgeaktionen` area visibly contains actions such as `Suchen`, `Logging`, and `Bezeichnung`.
+
+6. **~00:32 — Execute the loaded process**
+   - Click the **green check / execute icon in the top toolbar**.
+   - In the mock this action is exposed as `AutomationId=Toolbar_Execute`.
+   - Do not add a separate large Execute button to the form.
+
+7. **~00:33 — Confirmation dialog**
+   Expected dialog text:
+
+   `Anlagenspiegel erstellen?`
+
+   Click:
+
+   `Ja`
+
+   Do not choose `Abbrechen`.
+
+This `00:18–00:33` sequence is mandatory for reproducing the ALDI recording accurately.
+
+## C1. Open process manager
+
+Navigation path:
+
+`Anlagenbuchhaltung → Prozesse → Prozesse verwalten`
+
+Mock locator: `Nav_ProzesseVerwalten`.
+
+Expected screen:
+
+`Anlagenbuchhaltung - Prozesse verwalten`
+
+Find the saved process by **data values**, not grid coordinates:
 
 - Mandant = `02`
 - Programm = `CAB015`
@@ -456,116 +507,327 @@ Find/open:
 - Bezeichnung = `Alle Anlagen nach Konten verdichtet`
 - Status = `AKTIV`
 - Zustand = `OK`
-- process code = `CA45`
+- Process/type = `CA45`
 
-Bottom `Auswahl` area remains visible with:
+Select the row, then double-click it to open the saved process definition.
 
-- `Prozess`
-- `Alle Mandanten anzeigen`
-- `Anzeige = Alle Prozesse`
-- `Status ändern = Keine`
+### Important
 
-Right pane is `Folgeaktionen` with:
+For this video workflow, **do not skip `Prozesse verwalten` and directly open `Anlagenspiegel erstellen` from the left tree**. The recorded behavior is:
 
-- `Suchen`
-- `Logging`
-- `Bezeichnung`
+`Prozesse verwalten → locate CAB015/003 → select row → double-click → Anlagenspiegel erstellen populated with process 003`.
 
-Double-click/Enter the process 003 row.
+## C2. Verify loaded process values
 
-## C3. Anlagenspiegel screen for process 003
-
-Expected title:
+Expected screen title:
 
 `Anlagenbuchhaltung - Anlagenspiegel erstellen`
 
-Header:
+Verify:
 
-- process = `003`
-- description = `Alle Anlagen nach Konten verdichtet`
-
-Steuerung:
-
-- Aktiv = checked
-- Laufprotokoll = checked
+- Prozess = `003`
+- Bezeichnung = `Alle Anlagen nach Konten verdichtet`
+- `Aktiv` checked
+- `Automatisch deaktivieren` unchecked
+- `Laufprotokoll` checked
 - Art = `Kompletter Datenbestand`
+- Bericht = blank/disabled
 - Fachbereich = `Steuerrecht`
 - Wertart/Plan = `Ist`
-- Zeitraum = `01/2021` to `12/2021`
-- Erstellung = `Druckversion`
+- Zeitraum = `01/2021`–`12/2021`
+- Erstellung Art = `Druckversion`
+- Summe für Anlagenhauptnummer = unchecked
 - Zugänge = unchecked
 - Abgänge = unchecked
 - Umbuchung Anlage = unchecked
+- Bearbeitungszustand = `OK`
 
-Right context pane in this flow is `Folgeaktionen`; bottom right includes recorded `Protokolle/Listen` / `Folgeaktionen` counters.
+Record the job/spool correlation object **before execution**, for example:
 
-## C4. Execute
+`{report=Alle Anlagen nach Konten verdichtet, process=003, fachbereich=Steuerrecht, period=01/2021-12/2021, runStartedAt=<timestamp>, user=BHL}`.
 
-Confirmation:
+Do not change the saved values unless the automation job explicitly requires a different client/year/department.
 
-`Anlagenspiegel erstellen?` → `Ja`
+## C3. Execute and confirm
 
-Progress states:
+Click the top-toolbar green check / execute action:
+
+`AutomationId=Toolbar_Execute`
+
+Expected confirmation:
+
+`Anlagenspiegel erstellen?`
+
+Click:
+
+`Ja`
+
+## C4. Wait for the complete processing sequence
+
+The ALDI recording shows multiple progress states. Treat them as **one continuing run**, not separate jobs.
+
+Observed progress states include, in order:
 
 1. `Anlagenselektion gestartet.`
 2. `Ermitteln der Werte gestartet.`
-3. `Der Anlagenspiegel wird erstellt.`
 
-## C5. Spool/export
+The progress dialog remains modal while processing. It also contains an `Abbrechen` button; automation must **not click it** during a normal run.
 
-Navigate through:
+Wait rules:
 
-`Liste anzeigen → Druckauswahl → Start → spool`
+- Wait for the `Fortschritt` dialog to appear after confirmation.
+- Observe progress-message changes without trying to close the dialog.
+- Keep waiting until the `Fortschritt` dialog disappears by itself and the report form becomes responsive again.
+- Use condition-based waits with a configurable hard timeout; do not use the recording duration as a fixed sleep.
 
-Select the newest current-run:
+## C5. Open `Liste anzeigen`
 
-- `B015 / PRT`
-- user `BHL`
-- next STOP row = `Protokoll: Anlagenspiegel`
+After the progress dialog disappears:
 
-Then:
+1. Use the left navigation tree.
+2. Click `Liste anzeigen`.
+3. A `Druckauswahl` dialog opens before the spool grid is shown.
 
-`right-click → Export → Erweitert`
+Do not expect the spool grid to appear immediately after report generation.
 
-Expected Gitterbox:
+## C6. `Druckauswahl`
 
-- `Tabellenname = CTLP1`
-- `Menge gesamt = 23`
-- initial Format = `XLS`
+The ALDI recording shows the print-selection/filter dialog before the report spool.
+
+Use/verify the current Wilken context and click `Start` to load the spool list. The same common `Druckauswahl` rules from Workflow A apply.
+
+Important automation behavior:
+
+- Do not treat `Druckauswahl` as the export screen.
+- `Start` here means **load/show matching spool entries**, not export the report.
+
+## C7. Locate the exact generated spool entry
+
+After `Druckauswahl → Start`, the spool list contains many rows.
+
+Find the newly generated entry corresponding to the current run using:
+
+1. creation time after `runStartedAt`
+2. user/context match
+3. process/report = `Alle Anlagen nach Konten verdichtet`
+4. Fachbereich = `Steuerrecht`
+5. period = `01/2021-12/2021`
+6. newest matching entry
+
+Do not export an arbitrary highlighted row.
+
+The spool can contain related metadata/protocol rows. Match the report entry belonging to the generated report, not a protocol/log entry.
+
+## C8. Right-click the selected spool row
+
+Once the exact report row is selected:
+
+`Right-click → Export → Erweitert`
+
+The submenu transition is part of the workflow and must be implemented; `Erweitert` is what opens the advanced Gitterbox export screen.
+
+Expected screen:
+
+`System - Gitterbox-Export`
+
+## C9. Configure Gitterbox export
+
+Recorded values for this flow:
+
+- Tabellenname = `CTLP1`
+- Menge gesamt = `23`
+- Format initially = `XLS`
 - Ziel = `Excel`
 - Datensätze = `Alle`
-- range = `1` to `23`
 
-Change to `XLSX`, then Execute.
+Mandatory action:
+
+**Explicitly change `XLS → XLSX`.**
+
+Do not rely on a previously remembered format selection.
+
+Interpretation of `Datensätze = Alle`:
+
+- Export all records contained in the **selected spool report**.
+- It does **not** export all rows visible in the spool list.
+
+## C10. Trigger the actual export
+
+There is no large form-level `Export` button in the recorded Gitterbox screen.
+
+After ensuring:
+
+`XLSX + Excel + Alle`
+
+click the **green check / execute icon in the top Wilken toolbar**.
+
+Mock locator:
+
+`AutomationId=Toolbar_Execute`
+
+On the Gitterbox screen this toolbar action means:
+
+`Export ausführen`
+
+Then wait for the XLSX file to be created/opened. The recording shows Excel opening the produced file after the toolbar action.
+
+## C11. Validate and finalize the exported file
+
+Use the same production-grade validation rules as Workflow A:
+
+1. snapshot the download/output directory before export
+2. trigger export
+3. find the new `.xlsx` created after the trigger timestamp
+4. wait until its size becomes stable
+5. ensure it is no longer locked for writing
+6. validate XLSX/ZIP structure
+7. optionally validate expected headers/content
+8. rename/move it to the deterministic job filename
+9. only then mark the job successful
+
+Recommended filename:
+
+`{Client}_{Year}_{Department}_Alle_Anlagen_nach_Konten_verdichtet.xlsx`
+
+## C12. Close current child windows before the next process
+
+After XLSX validation, do **not** click `Prozesse verwalten` in the left navigation. That can produce `Funktion gesperrt` because the original process-manager context is still open underneath the current child windows.
+
+Use the internal close X (`AutomationId=InternalWindow_Close`) and verify each return state:
+
+`System - Gitterbox-Export`
+→ internal X
+→ `Anlagenbuchhaltung - Liste anzeigen` / spool
+→ internal X
+→ `Anlagenbuchhaltung - Anlagenspiegel erstellen`
+→ internal X
+→ `Anlagenbuchhaltung - Prozesse verwalten`
+→ verify `ProcessManager_Grid`
+→ select next process.
+
+Never click the outer Windows/Citrix close button. Never continue closing after `ProcessManager_Grid` is visible.
+
+## C13. Exact high-level sequence from the full ALDI recording
+
+The complete verified sequence is:
+
+`Prozesse verwalten`
+→ `find CAB015 / 003 / Alle Anlagen nach Konten verdichtet`
+→ `select exact row`
+→ `double-click row`
+→ `Anlagenspiegel erstellen` opens with saved process `003`
+→ `verify Steuerung values`
+→ `green toolbar execute`
+→ `Anlagenspiegel erstellen?`
+→ `Ja`
+→ `Fortschritt: Anlagenselektion gestartet.`
+→ `Fortschritt: Ermitteln der Werte gestartet.`
+→ `wait until Fortschritt closes`
+→ `Liste anzeigen`
+→ `Druckauswahl`
+→ `Start`
+→ `spool list`
+→ `locate exact new report row`
+→ `right-click`
+→ `Export`
+→ `Erweitert`
+→ `System - Gitterbox-Export`
+→ `change XLS to XLSX`
+→ `Ziel = Excel`
+→ `Datensätze = Alle`
+→ `green toolbar execute / Export ausführen`
+→ `wait for XLSX/Excel`
+→ `validate and finalize file`
+→ `internal close X: Gitterbox → spool → report`
+→ `verify Prozesse verwalten / ProcessManager_Grid`
+→ `select next process`.
+
+# Required automation state machine
+
+Implement states similar to:
+
+`Idle`
+→ `NavigatingToReport`
+→ `ConfiguringReport`
+→ `ReadyToExecute`
+→ `Confirming`
+→ `Generating`
+→ `WaitingForReportCompletion`
+→ `OpeningList`
+→ `PrintSelection`
+→ `LoadingSpool`
+→ `LocatingExactSpoolEntry`
+→ `OpeningContextMenu`
+→ `OpeningAdvancedExport`
+→ `ConfiguringXlsxExport`
+→ `Exporting`
+→ `WaitingForDownload`
+→ `ValidatingFile`
+→ `RenamingFile`
+→ `ClosingExportChild`
+→ `ClosingSpoolChild`
+→ `ClosingReportChild`
+→ `WaitingForProcessManager`
+→ `ReadyForNextProcess`
+→ `Success`
+
+Failure/retry states:
+
+`UiElementNotFound`, `UnexpectedDialog`, `FunctionLocked`, `GenerationTimeout`, `SpoolEntryNotFound`, `AmbiguousSpoolMatch`, `ExportDialogTimeout`, `DownloadTimeout`, `InvalidXlsx`, `ReturnToProcessManagerTimeout`, `RetryableFailure`, `FailedFinal`.
+
+Never mark a job successful merely because the Export command was clicked.
 
 ---
 
-# Timing reference
+# Critical spool-selection rule
 
-Observed end-to-end recording durations:
+This is the most important correctness rule:
 
-- Zugangsliste: about `38 s` in the supplied recording; user observation is approximately `30 s`
-- Anlagenspiegel Detailliert nach Anlagen: about `66.4 s`; user observation is approximately `65 s`
-- ALDI process-003 recording: about `126.9 s` including navigation/process-manager/manual interaction
+> The spool contains many reports from different times and report types. The worker must correlate the newly generated spool entry to the current job. Right-clicking a selected report exports that selected report. `Datensätze = Alle` exports all data records of that selected report; it does **not** mean all reports in the spool.
 
-The replica uses configurable **application-owned wait phases** in `appsettings.json`. These are not intended to reproduce human hesitation between clicks. Automation must wait for controls/windows/state changes, with a timeout, rather than sleeping for the nominal duration.
+If more than one row matches the same report/year/department, use the creation timestamp relative to `runStartedAt`. If correlation remains ambiguous, fail safely with `AmbiguousSpoolMatch`; never guess.
 
-# Locator policy
+---
 
-Use this order:
+# Timing and waiting rules
 
-`AutomationId → ControlType + Name → Parent/child relation → keyboard → image match → coordinates`
+The mock's current timing profile intentionally simulates the user's measured totals:
 
-Coordinates are last resort because the actual application is presented through a Windows/Citrix-style environment.
+- Zugangsliste ≈ 30 s
+- Anlagenspiegel Detailliert nach Anlagen ≈ 65 s
 
-# Critical invariants for Cursor
+Use these only for performance expectations. Production code must use condition-based waits:
 
-- Never skip confirmation dialogs.
-- Never skip `Liste anzeigen` before `Druckauswahl`.
-- Never skip `Druckauswahl`.
-- Never assume the spool has one row.
-- Reproduce the recorded selection of the newest matching **PRT metadata row**.
-- Never assume XLSX is preselected; recorded initial format is `XLS`.
-- `Datensätze = Alle` applies to records of the selected export context; it does not mean “all spool rows”.
-- No artificial “Export completed” modal.
-- File existence alone is not Success; validate file stability and XLSX structure.
+- window appears/disappears
+- button enabled/disabled
+- title changes
+- progress message changes
+- spool row created after job start
+- export view appears
+- file creation + size stability
+
+Every wait must have a configurable upper-bound timeout and cancellation token.
+
+---
+
+# Screenshot usage with Cursor
+
+Give Cursor screenshots for these visual checkpoints, and tell it that this document is the behavioral source of truth:
+
+1. Zugangsliste form.
+2. Zugangsliste `Fortschritt` dialog.
+3. Anlagenspiegel form.
+4. `Anlagenspiegel erstellen?` confirmation.
+5. `Ermitteln der Werte gestartet.` progress.
+6. `Der Anlagenspiegel wird erstellt.` progress.
+7. `Druckauswahl` dialog.
+8. Spool list with many rows.
+9. Spool right-click menu with `Export → Erweitert`.
+10. Gitterbox export with XLS selected.
+11. Gitterbox export after XLSX selection.
+12. Downloaded XLSX visible in Downloads/browser.
+13. Prozesse verwalten grid and the `CAB015 / 003 / Alle Anlagen nach Konten verdichtet` row.
+14. Internal child-window close X in the top-right blue Wilken title bar.
+15. `Funktion gesperrt` dialog shown when Prozesse verwalten is opened again before child windows are closed.
+
+Cursor should refine dimensions/colors/icons against screenshots but must not change the workflow or field semantics documented here.
