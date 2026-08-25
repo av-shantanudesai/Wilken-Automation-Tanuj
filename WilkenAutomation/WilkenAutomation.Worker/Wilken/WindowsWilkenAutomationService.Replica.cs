@@ -303,6 +303,20 @@ public partial class WindowsWilkenAutomationService
         GuardHealthy();
         SessionStatus = WilkenSessionStatus.Busy;
         _runStartedAtUtc = DateTime.UtcNow;
+
+        // After Zeitraum / Fachbereich are set: Speichern (floppy disk) first,
+        // wait for "Prozess aktualisiert", then Ausführen (green tick).
+        var save = TryFindByAutomationId("Toolbar_Save");
+        if (save is not null)
+        {
+            InvokeControl(save);
+            await WaitUntilUiAsync(
+                () => ScreenStatusContains("Prozess aktualisiert"),
+                TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+                "status 'Prozess aktualisiert' after save", ct);
+            _logger.LogInformation("Process saved (Prozess aktualisiert).");
+        }
+
         InvokeControl(FindByAutomationId("Toolbar_Execute"));
         await WaitUntilUiAsync(
             () => TryFindByAutomationId("Confirm_Yes") is not null,

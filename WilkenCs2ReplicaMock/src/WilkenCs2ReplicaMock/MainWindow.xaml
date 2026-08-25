@@ -102,6 +102,11 @@
                             <Button Width="28" Content="⊠"/><Button Width="28" Content="✕"/>
                             <Separator Width="8"/>
                         </StackPanel>
+                        <Button x:Name="SaveButton" Width="31" Content="💾" FontSize="13" ToolTip="Speichern"
+                                Foreground="#1F4E8C" Padding="0"
+                                automation:AutomationProperties.Name="Speichern"
+                                automation:AutomationProperties.AutomationId="Toolbar_Save"
+                                Click="SaveButton_Click"/>
                         <Button x:Name="ExecuteButton" Width="31" Content="✓" ToolTip="Ausführen"
                                 automation:AutomationProperties.AutomationId="Toolbar_Execute" Click="ExecuteButton_Click"/>
                         <StackPanel x:Name="ToolbarTailControls" Orientation="Horizontal">

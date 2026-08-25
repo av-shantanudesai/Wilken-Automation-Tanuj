@@ -213,6 +213,12 @@ public partial class MainWindow : Window
         }, DispatcherPriority.ApplicationIdle);
     }
 
+    private void SaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_screen is not ("Zugangsliste" or "Anlagenspiegel" or "Verdichtet")) return;
+        StatusText.Text = "Prozess aktualisiert";
+    }
+
     private async void ExecuteButton_Click(object sender, RoutedEventArgs e)
     {
         if (_screen == "Export") { await ExportAsync(); return; }
@@ -253,6 +259,7 @@ public partial class MainWindow : Window
             RightColumn.Width = new GridLength(0);
             ToolbarStandardControls.Visibility = Visibility.Collapsed;
             ToolbarTailControls.Visibility = Visibility.Collapsed;
+            SaveButton.Visibility = Visibility.Collapsed;
             MenuSecond.Visibility = Visibility.Visible;
             MenuSecond.Text = "Optionen";
 
@@ -273,6 +280,7 @@ public partial class MainWindow : Window
             RightColumn.Width = new GridLength(215);
             ToolbarStandardControls.Visibility = Visibility.Visible;
             ToolbarTailControls.Visibility = Visibility.Visible;
+            SaveButton.Visibility = Visibility.Visible;
             MenuSecond.Text = "Aktionen";
             MenuSecond.Visibility = processManager ? Visibility.Collapsed : Visibility.Visible;
 
