@@ -38,7 +38,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     private bool IsReplica =>
         (_options.ProcessName ?? "").Contains("WilkenCs2ReplicaMock", StringComparison.OrdinalIgnoreCase)
-        || (_options.MainWindowTitle ?? "").Contains("Wilken_CS/2", StringComparison.OrdinalIgnoreCase);
+        || EffectiveExecutablePath().Contains("WilkenCs2ReplicaMock", StringComparison.OrdinalIgnoreCase);
 
     public WindowsWilkenAutomationService(
         WilkenOptions options,
@@ -83,7 +83,9 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
             {
                 await WaitHelper.WaitUntilAsync(
                     TryAttachToOpenSession,
-                    TimeSpan.FromSeconds(_options.StartupTimeoutSeconds),
+                    _options.SkipLogin
+                        ? TimeSpan.FromMinutes(Math.Max(1, _options.ManualLoginTimeoutMinutes))
+                        : TimeSpan.FromSeconds(_options.StartupTimeoutSeconds),
                     TimeSpan.FromMilliseconds(_options.PollingIntervalMs),
                     $"user-opened Wilken window '{_options.MainWindowTitle}'",
                     ct);
@@ -98,32 +100,45 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         else
         {
             var processName = EffectiveProcessName();
-            var existing = GetWilkenProcesses(processName);
-            if (existing.Length > 0)
+            if (RequiresManualLoginScreens)
             {
-                AttachToProcess(existing[0]);
-                if (FindMainWindow() is null)
+                // Never attach to an already-open main window — that skips EHP/Anmeldung.
+                KillProcessesByName(processName);
+                _app = null;
+                _mainWindow = null;
+                await Task.Delay(400, ct);
+                LaunchWilken();
+                launched = true;
+            }
+            else
+            {
+                var existing = GetWilkenProcesses(processName);
+                if (existing.Length > 0)
                 {
-                    _logger.LogWarning("Wilken process {Pid} has no main window (user closed it). Restarting.", existing[0].Id);
-                    await KillTrackedProcessAsync();
+                    AttachToProcess(existing[0]);
+                    if (FindMainWindow() is null && FirstTopLevelWindow() is null)
+                    {
+                        _logger.LogWarning("Wilken process {Pid} has no window (user closed it). Restarting.", existing[0].Id);
+                        await KillTrackedProcessAsync();
+                        LaunchWilken();
+                        launched = true;
+                    }
+                }
+                else
+                {
                     LaunchWilken();
                     launched = true;
                 }
             }
-            else
-            {
-                LaunchWilken();
-                launched = true;
-            }
 
             await WaitHelper.WaitUntilAsync(() =>
             {
-                _mainWindow = FindMainWindow();
-                return _mainWindow is not null;
+                _mainWindow = FindMainWindow() ?? FirstTopLevelWindow();
+                return _app is not null && !_app.HasExited;
             },
             TimeSpan.FromSeconds(_options.StartupTimeoutSeconds),
             TimeSpan.FromMilliseconds(_options.PollingIntervalMs),
-            $"Wilken main window '{_options.MainWindowTitle}'", ct);
+            "Wilken process started", ct);
         }
 
         LogAttachedWindow();
@@ -131,12 +146,12 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         if (launched && !IsReplica)
             MinimizeWithoutActivating();
 
-        HandleDialogs();
         if (!_options.SkipLogin)
             await LoginIfRequiredAsync(ct);
         else
-            _logger.LogInformation("SkipLogin is on — expecting the user to already be logged in.");
+            await WaitUntilUserReachedMainScreenAsync(ct);
 
+        HandleDialogs();
         SessionStatus = WilkenSessionStatus.Ready;
     }
 
@@ -164,13 +179,130 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
             "login completion", ct);
     }
 
+    /// <summary>
+    /// Citrix / replica --manual-login: do not type Country, Company, Benutzer,
+    /// Passwort, or Mandant. Wait until the user reaches the main work area
+    /// (Navigation / Prozesse verwalten). Dashboard Mandant is job identity only.
+    /// </summary>
+    private async Task WaitUntilUserReachedMainScreenAsync(CancellationToken ct)
+    {
+        SessionStatus = WilkenSessionStatus.LoginRequired;
+        var timeout = TimeSpan.FromMinutes(Math.Max(1, _options.ManualLoginTimeoutMinutes));
+
+        if (RequiresManualLoginScreens)
+        {
+            _logger.LogInformation(
+                "Manual login: waiting for EHP (Start Wilken) or Anmeldung to appear. Jobs will not start yet.");
+            try
+            {
+                await WaitUntilUiAsync(
+                    AnyLoginOrStartupWindowOpen,
+                    TimeSpan.FromSeconds(Math.Max(20, _options.StartupTimeoutSeconds)),
+                    "EHP or Anmeldung window",
+                    ct);
+            }
+            catch (WaitTimeoutException ex)
+            {
+                throw new WilkenAutomationException("WILKEN_LOGIN_SCREEN_MISSING",
+                    "EHP/Anmeldung never appeared. The replica must start with --manual-login (and WILKEN_REPLICA_MANUAL_LOGIN=1). Close leftover WilkenCs2ReplicaMock windows and retry.",
+                    sessionLost: true, ex);
+            }
+
+            _logger.LogInformation(
+                "Login screens are visible. Waiting up to {Minutes} min for you to click Start Wilken, then Anmelden. Automation does not fill those fields.",
+                timeout.TotalMinutes);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Waiting up to {Minutes} min for you to finish EHP (Country/Company → Start Wilken) and Anmeldung (Benutzer, Passwort, Mandant → Anmelden). Automation does not fill those fields.",
+                timeout.TotalMinutes);
+        }
+
+        try
+        {
+            await WaitUntilUiAsync(
+                IsLoggedInMainScreen,
+                timeout,
+                "logged-in Wilken main screen (Navigation)",
+                ct);
+        }
+        catch (WaitTimeoutException ex)
+        {
+            throw new WilkenAutomationException("WILKEN_LOGIN_NOT_COMPLETED",
+                "Wilken main screen was not reached. Complete EHP and Anmeldung (same Mandant as the dashboard job) and leave the Navigation tree visible.",
+                sessionLost: true, ex);
+        }
+
+        _logger.LogInformation("User finished login. Main screen is ready; process automation can start.");
+        SessionStatus = WilkenSessionStatus.Ready;
+    }
+
+    private bool RequiresManualLoginScreens =>
+        _options.RequireManualLoginScreens
+        || (_options.StartupArguments ?? "").Contains("manual-login", StringComparison.OrdinalIgnoreCase);
+
+    private bool AnyLoginOrStartupWindowOpen()
+    {
+        if (_app is not null && _automation is not null)
+        {
+            try
+            {
+                foreach (var window in _app.GetAllTopLevelWindows(_automation))
+                {
+                    if (IsUserLoginOrStartupWindow(window))
+                        return true;
+                }
+            }
+            catch { }
+        }
+
+        return TryFindByAutomationId("Ehp_StartWilken") is not null
+            || TryFindByAutomationId("Login_Anmelden") is not null
+            || TryFindByAutomationId("EhpStartupDialog") is not null
+            || TryFindByAutomationId("LoginDialog") is not null;
+    }
+
+    private static bool IsStartupOrLoginTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+        return title.Contains("Anmeldung", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("EHP 2", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Workspace Environment", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsLoggedInMainScreen()
+    {
+        _mainWindow = FindMainWindow() ?? FirstTopLevelWindow();
+        if (_mainWindow is null) return false;
+
+        if (AnyLoginOrStartupWindowOpen()) return false;
+        if (IsStartupOrLoginTitle(_mainWindow.Title)) return false;
+
+        if (TryFindByAutomationId("Navigation_Tree") is not null) return true;
+        if (TryFindByAutomationId("ProcessManager_Grid") is not null) return true;
+        if (TryFindByAutomationId("Home_Workspace") is not null) return true;
+
+        var title = _mainWindow.Title ?? "";
+        // After real Anmeldung the shell title is like "1/02 - … - Wilken_CS/2_Finanzmanagement".
+        return title.Contains('/')
+            && title.Contains("Wilken", StringComparison.OrdinalIgnoreCase)
+            && !title.Contains("Anmeldung", StringComparison.OrdinalIgnoreCase);
+    }
+
     public async Task SelectClientAsync(string client, CancellationToken ct)
     {
-        if (IsReplica)
+        // Mandant is chosen by the user on Anmeldung. The dashboard value is only
+        // the job identity and must match that login; it is never typed into Wilken.
+        if (IsReplica || _options.SkipLogin)
         {
             GuardHealthy();
+            _logger.LogInformation(
+                "Mandant '{Client}' comes from the dashboard job only. Wilken login Mandant is filled by the user.",
+                client);
             return;
         }
+
         GuardHealthy();
         HandleDialogs();
         await SetSelectorValueAsync("ClientField", client, ct);
@@ -575,18 +707,26 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         try
         {
             if (_app is null || _app.HasExited) return false;
-            var process = Process.GetProcessById(_app.ProcessId);
+            Process process;
+            try { process = Process.GetProcessById(_app.ProcessId); }
+            catch (ArgumentException) { return false; }
             if (process.HasExited) return false;
-            if (!process.Responding)
+
+            // EHP closes and Anmeldung opens as a new window. The previous UIA
+            // handle goes stale — that is not a crashed session.
+            try
             {
-                SessionStatus = WilkenSessionStatus.NotResponding;
-                return false;
+                _mainWindow = FindMainWindow() ?? FirstTopLevelWindow();
+                if (_mainWindow is not null)
+                    _ = _mainWindow.Title;
+            }
+            catch
+            {
+                try { _mainWindow = FirstTopLevelWindow(); }
+                catch { _mainWindow = null; }
             }
 
-            _mainWindow = FindMainWindow() ?? _mainWindow;
-            if (_mainWindow is null) return false;
-            _ = _mainWindow.Title;
-            return true;
+            return !process.HasExited;
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException or ArgumentException)
         {
@@ -736,8 +876,19 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         if (_app is null || _automation is null) return null;
         try
         {
-            return _app.GetAllTopLevelWindows(_automation)
-                .FirstOrDefault(w => (w.Title ?? "").Contains(_options.MainWindowTitle, StringComparison.OrdinalIgnoreCase));
+            var matches = _app.GetAllTopLevelWindows(_automation)
+                .Where(w =>
+                {
+                    var title = w.Title ?? "";
+                    return title.Contains(_options.MainWindowTitle, StringComparison.OrdinalIgnoreCase)
+                        || title.Contains("Finanzmanagement", StringComparison.OrdinalIgnoreCase)
+                        || title.Contains("EHP 2", StringComparison.OrdinalIgnoreCase);
+                })
+                .ToList();
+            return matches
+                .OrderBy(w => IsStartupOrLoginTitle(w.Title) ? 1 : 0)
+                .FirstOrDefault()
+                ?? matches.FirstOrDefault();
         }
         catch
         {
@@ -758,6 +909,20 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
     private static Process[] GetWilkenProcesses(string processName) =>
         string.IsNullOrEmpty(processName) ? Array.Empty<Process>() : Process.GetProcessesByName(processName);
 
+    private void KillProcessesByName(string processName)
+    {
+        foreach (var process in GetWilkenProcesses(processName))
+        {
+            try
+            {
+                _logger.LogInformation("Stopping existing {Name} pid {Pid} so login screens can be shown.", processName, process.Id);
+                process.Kill(entireProcessTree: true);
+            }
+            catch { }
+            finally { process.Dispose(); }
+        }
+    }
+
     private void LaunchWilken()
     {
         var exe = EffectiveExecutablePath();
@@ -766,17 +931,32 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                 $"Wilken executable not configured or missing: '{exe}'. Set the path on New Run or Wilken:ExecutablePath.",
                 sessionLost: true);
 
-        _app = FlaUI.Core.Application.Launch(new ProcessStartInfo
+        // UseShellExecute=false so Arguments and WILKEN_REPLICA_MANUAL_LOGIN reach the replica.
+        // WPF StartupEventArgs.Args is often empty when another process launches the exe.
+        var start = new ProcessStartInfo
         {
             FileName = exe,
-            UseShellExecute = true,
+            Arguments = _options.StartupArguments ?? "",
+            WorkingDirectory = Path.GetDirectoryName(exe) ?? "",
+            UseShellExecute = false,
             WindowStyle = IsReplica ? ProcessWindowStyle.Normal : ProcessWindowStyle.Minimized
-        });
+        };
+        if (RequiresManualLoginScreens)
+            start.Environment["WILKEN_REPLICA_MANUAL_LOGIN"] = "1";
+
+        var process = Process.Start(start)
+            ?? throw new WilkenAutomationException("WILKEN_EXE_NOT_FOUND",
+                $"Failed to start '{exe}'.", sessionLost: true);
+        _app = FlaUI.Core.Application.Attach(process);
         _logger.LogInformation(
+            "Launched {Kind} ({Path}) arguments='{Args}' manualLogin={Manual}. {Hint}",
+            IsReplica ? "replica" : "Wilken CS/2",
+            exe,
+            start.Arguments,
+            RequiresManualLoginScreens,
             IsReplica
-                ? "Launched Wilken CS/2 replica ({Path}). Window stays visible; automation uses UIA only (no mouse)."
-                : "Launched Wilken CS/2 ({Path}). Starts minimized; restore from the taskbar to watch. Automation uses UIA only (no mouse).",
-            exe);
+                ? "Window stays visible; automation uses UIA only (no mouse)."
+                : "Starts minimized; restore from the taskbar to watch. Automation uses UIA only (no mouse).");
     }
 
     private string EffectiveExecutablePath()

@@ -48,7 +48,7 @@ public class JobWorker : BackgroundService
             _settings.AutomationMode == AutomationMode.Mock
                 ? "Mock mode does not open a window. Use: dotnet run --project WilkenAutomation.Worker -- --desktop-test"
                 : _settings.AutomationMode == AutomationMode.DesktopTest
-                    ? "DesktopTest mode will launch/attach WilkenAutomation.TestDesktop."
+                    ? "DesktopTest: idle until the dashboard Generate jobs button creates a run. Dummy Wilken opens on the first claimed job."
                     : "Wilken mode is attach-only: open Citrix Test Environment, log in, inspect UI, then start a run.");
 
         await RunStartupRecoveryAsync(stoppingToken);

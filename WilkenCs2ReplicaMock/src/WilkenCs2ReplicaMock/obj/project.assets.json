@@ -8,7 +8,7 @@
     "net8.0-windows": []
   },
   "packageFolders": {
-    "C:\\Users\\tanuj.rathore\\AppData\\Local\\Temp\\cursor-sandbox-cache\\5ed2c1e3edae55cecea88f1ce07f0bcf\\nuget": {},
+    "C:\\Users\\tanuj.rathore\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
@@ -17,7 +17,7 @@
       "projectUniqueName": "C:\\Users\\tanuj.rathore\\Documents\\GitHub\\Wilken_CS_Project\\WilkenCs2ReplicaMock\\src\\WilkenCs2ReplicaMock\\WilkenCs2ReplicaMock.csproj",
       "projectName": "WilkenCs2ReplicaMock",
       "projectPath": "C:\\Users\\tanuj.rathore\\Documents\\GitHub\\Wilken_CS_Project\\WilkenCs2ReplicaMock\\src\\WilkenCs2ReplicaMock\\WilkenCs2ReplicaMock.csproj",
-      "packagesPath": "C:\\Users\\tanuj.rathore\\AppData\\Local\\Temp\\cursor-sandbox-cache\\5ed2c1e3edae55cecea88f1ce07f0bcf\\nuget",
+      "packagesPath": "C:\\Users\\tanuj.rathore\\.nuget\\packages\\",
       "outputPath": "C:\\Users\\tanuj.rathore\\Documents\\GitHub\\Wilken_CS_Project\\WilkenCs2ReplicaMock\\src\\WilkenCs2ReplicaMock\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [

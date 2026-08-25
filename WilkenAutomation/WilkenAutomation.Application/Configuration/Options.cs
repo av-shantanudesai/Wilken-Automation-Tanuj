@@ -12,6 +12,22 @@ public class WilkenOptions
     public int MaxAttempts { get; set; } = 3;
     public int StartupTimeoutSeconds { get; set; } = 60;
     public int LoginTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// How long to wait for the user to finish EHP (Country/Company) and Anmeldung
+    /// (Benutzer, Passwort, Mandant) after Wilken is started. The dashboard Mandant
+    /// is not typed into those screens.
+    /// </summary>
+    public int ManualLoginTimeoutMinutes { get; set; } = 15;
+
+    /// <summary>Optional process arguments, e.g. replica <c>--manual-login</c>.</summary>
+    public string StartupArguments { get; set; } = "";
+
+    /// <summary>
+    /// When true, the worker must see EHP/Anmeldung before treating the session
+    /// as ready. Prevents attaching to an already-open main window.
+    /// </summary>
+    public bool RequireManualLoginScreens { get; set; }
     public int NavigationTimeoutSeconds { get; set; } = 30;
     public int ReportTimeoutMinutes { get; set; } = 20;
     public int ExportTimeoutMinutes { get; set; } = 10;

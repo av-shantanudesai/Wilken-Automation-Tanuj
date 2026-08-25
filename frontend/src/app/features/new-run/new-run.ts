@@ -16,7 +16,7 @@ export class NewRunPage implements OnInit {
   private router = inject(Router);
 
   clientCount = signal(2);
-  clientsText = signal('001, 002');
+  clientsText = signal('02');
   wilkenExecutablePath = signal('');
   exportRootDirectory = signal('');
   yearFrom = signal(2003);

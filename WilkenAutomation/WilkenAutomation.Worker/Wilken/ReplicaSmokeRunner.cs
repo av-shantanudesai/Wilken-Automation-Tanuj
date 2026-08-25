@@ -10,10 +10,13 @@ namespace WilkenAutomation.Worker.Wilken;
 /// Drives one full Zugangsliste job plus a second job against the replica,
 /// using the same FlaUI service the worker uses. Run:
 ///   dotnet run --project WilkenAutomation.Worker -- --replica-smoke
+///   dotnet run --project WilkenAutomation.Worker -- --replica-login-smoke
+/// The login smoke launches EHP + Anmeldung and waits for you to click through
+/// (same Mandant as the job, e.g. 02) before the export workflow starts.
 /// </summary>
 internal static class ReplicaSmokeRunner
 {
-    public static async Task<int> RunAsync()
+    public static async Task<int> RunAsync(bool manualLogin = false)
     {
         foreach (var process in Process.GetProcessesByName("WilkenCs2ReplicaMock"))
         {
@@ -29,16 +32,27 @@ internal static class ReplicaSmokeRunner
             return 2;
         }
 
+        Console.WriteLine("CLI SMOKE — this does NOT use the dashboard. Jobs start immediately.");
+        Console.WriteLine("For Generate jobs on the UI, stop this and run:");
+        Console.WriteLine("  dotnet run --project WilkenAutomation.Worker --no-launch-profile -- --desktop-test");
         Console.WriteLine($"SMOKE replica: {exe}");
+        if (manualLogin)
+        {
+            Console.WriteLine("MANUAL LOGIN: complete EHP (Start Wilken) then Anmeldung (Anmelden).");
+            Console.WriteLine("Use Mandant 02 — same value as the dashboard job. Automation will not type it.");
+        }
 
         var options = new WilkenOptions
         {
             ExecutablePath = exe,
+            StartupArguments = manualLogin ? "--manual-login" : "",
             MainWindowTitle = "Wilken_CS/2_Finanzmanagement",
             ProcessName = "WilkenCs2ReplicaMock",
             AttachOnly = false,
             SkipLogin = true,
             RequireInspectedSelectors = false,
+            RequireManualLoginScreens = manualLogin,
+            ManualLoginTimeoutMinutes = manualLogin ? 15 : 1,
             NavigationTimeoutSeconds = 45,
             ReportTimeoutMinutes = 5,
             ExportTimeoutMinutes = 3,
@@ -67,7 +81,7 @@ internal static class ReplicaSmokeRunner
             catalog,
             loggerFactory.CreateLogger<WindowsWilkenAutomationService>());
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(manualLogin ? 20 : 8));
         var runConfig = new RunConfig { EnableContentValidation = false };
 
         try

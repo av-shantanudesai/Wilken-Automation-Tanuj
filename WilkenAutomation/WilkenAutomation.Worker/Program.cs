@@ -11,9 +11,9 @@ using WilkenAutomation.Worker.Wilken;
 using WilkenAutomation.Worker.Windows;
 using WilkenAutomation.Worker.Worker;
 
-if (args.Length >= 1 && args[0] == "--inspect")
+if (args.Any(a => a.Equals("--inspect", StringComparison.OrdinalIgnoreCase)))
 {
-    var rest = args.Skip(1).ToArray();
+    var rest = args.SkipWhile(a => !a.Equals("--inspect", StringComparison.OrdinalIgnoreCase)).Skip(1).ToArray();
     var dump = rest.Length == 0 || rest[0] is "--list" or "-l"
         ? UiaTreeDumper.ListTopLevelWindows()
         : UiaTreeDumper.DumpWindowByTitle(rest[0]);
@@ -24,14 +24,30 @@ if (args.Length >= 1 && args[0] == "--inspect")
     return;
 }
 
-if (args.Length >= 1 && args[0].Equals("--replica-smoke", StringComparison.OrdinalIgnoreCase))
+// Match anywhere in args — --no-launch-profile or extra tokens can sit in front
+// if the user put those flags after `--`.
+if (args.Any(a => a.Equals("--replica-login-smoke", StringComparison.OrdinalIgnoreCase)))
 {
-    Environment.ExitCode = await ReplicaSmokeRunner.RunAsync();
+    Console.WriteLine("MODE: replica login smoke — EHP then Anmeldung. Jobs wait until you click Anmelden.");
+    Environment.ExitCode = await ReplicaSmokeRunner.RunAsync(manualLogin: true);
+    return;
+}
+
+if (args.Any(a => a.Equals("--replica-smoke", StringComparison.OrdinalIgnoreCase)))
+{
+    Environment.ExitCode = await ReplicaSmokeRunner.RunAsync(manualLogin: false);
     return;
 }
 
 var forceDesktopTest = args.Any(a => a.Equals("--desktop-test", StringComparison.OrdinalIgnoreCase));
 var hostArgs = args.Where(a => !a.Equals("--desktop-test", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+if (forceDesktopTest)
+{
+    // --no-launch-profile defaults to Production, which refuses the committed Jwt:Key.
+    // The DesktopTest launch profile sets this; keep the same environment for the CLI flag.
+    Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", "DesktopTest");
+}
 
 var builder = Host.CreateApplicationBuilder(hostArgs);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
@@ -110,8 +126,23 @@ Console.WriteLine("============================================================"
 switch (workerSettings.AutomationMode)
 {
     case AutomationMode.DesktopTest:
-        Console.WriteLine("MODE: DesktopTest — Wilken CS/2 replica UI will open.");
+        Console.WriteLine("MODE: DesktopTest — waiting for dashboard jobs.");
+        Console.WriteLine("  Do not use --replica-login-smoke. That CLI starts jobs immediately and ignores the dashboard.");
+        Console.WriteLine("  1. Keep this worker running (idle). Dummy Wilken does not open yet.");
+        Console.WriteLine("  2. In the dashboard, click Generate jobs (Start immediately checked).");
+        Console.WriteLine("  3. The replica opens only after a job is claimed.");
+        if (wilkenOptions.RequireManualLoginScreens
+            || (wilkenOptions.StartupArguments ?? "").Contains("manual-login", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("  4. Complete EHP (Start Wilken) then Anmeldung (same Mandant as the run, e.g. 02).");
+            Console.WriteLine("  5. Automation starts at Prozesse verwalten after Anmelden.");
+        }
+        else
+        {
+            Console.WriteLine("  4. Automation starts on the replica main screen.");
+        }
         Console.WriteLine($"Exe: {wilkenOptions.ExecutablePath}");
+        Console.WriteLine($"Args: {wilkenOptions.StartupArguments}");
         Console.WriteLine("Handelsrecht → Zugangsliste; Steuerrecht → Anlagenspiegel. Exports are XLSX.");
         break;
     case AutomationMode.Wilken:
@@ -146,11 +177,13 @@ static void ApplyDesktopTestDefaults(WilkenOptions options)
     options.AttachOnly = false;
     options.SkipLogin = true;
     options.RequireInspectedSelectors = false;
+    options.RequireManualLoginScreens =
+        (options.StartupArguments ?? "").Contains("manual-login", StringComparison.OrdinalIgnoreCase);
     if (options.PollingIntervalMs <= 0) options.PollingIntervalMs = 400;
 
     void Set(string key, string value) => options.Selectors[key] = value;
 
-    // Replica has no login screen.
+    // DesktopTest login screens appear only when StartupArguments includes --manual-login.
     Set("LoginUsername", "");
     Set("LoginPassword", "");
     Set("LoginButton", "");

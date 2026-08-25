@@ -42,6 +42,7 @@ public partial class WindowsWilkenAutomationService
         foreach (var modal in modals)
         {
             if (IsFunctionLockedWindow(modal)) continue;
+            if (IsUserLoginOrStartupWindow(modal)) continue;
 
             var title = modal.Title ?? "<untitled>";
             if (IsKnownDialog(title)) continue;
@@ -81,8 +82,51 @@ public partial class WindowsWilkenAutomationService
         return false;
     }
 
+    /// <summary>
+    /// EHP, Anmeldung, and version Warnung are completed by the user. Never
+    /// auto-click Anmelden / Start Wilken / OK on those screens.
+    /// </summary>
+    private bool IsUserLoginOrStartupWindow(AutomationElement window)
+    {
+        string title = "";
+        try { title = window.Properties.Name.ValueOrDefault ?? ""; }
+        catch { }
+        try
+        {
+            if (window is Window w && !string.IsNullOrWhiteSpace(w.Title))
+                title = w.Title;
+        }
+        catch { }
+
+        if (title.Contains("Anmeldung", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("EHP 2", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Warnung", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Workspace Environment", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        try
+        {
+            var id = window.AutomationId ?? "";
+            if (id.Equals("LoginDialog", StringComparison.OrdinalIgnoreCase)
+                || id.Equals("EhpStartupDialog", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (window.FindFirstDescendant(cf => cf.ByAutomationId("Login_Anmelden")) is not null)
+                return true;
+            if (window.FindFirstDescendant(cf => cf.ByAutomationId("Ehp_StartWilken")) is not null)
+                return true;
+        }
+        catch { }
+
+        return false;
+    }
+
     private bool IsKnownDialog(string title)
     {
+        if (title.Contains("Anmeldung", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("EHP 2", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Warnung", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         if (IsReplica && (
             title.Contains("Zugangsliste", StringComparison.OrdinalIgnoreCase)
             || title.Contains("Anlagenspiegel", StringComparison.OrdinalIgnoreCase)

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WilkenCs2ReplicaMock")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c9ce7d4a4b38987b5b1beb705f8c5e6f0604719d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6aea00fc0ba5712a184bd68a91b4eacacfdfe2c8")]
 [assembly: System.Reflection.AssemblyProductAttribute("WilkenCs2ReplicaMock")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WilkenCs2ReplicaMock")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

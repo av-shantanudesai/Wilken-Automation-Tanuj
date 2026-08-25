@@ -1,7 +1,7 @@
 <Application x:Class="WilkenCs2ReplicaMock.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="MainWindow.xaml">
+             Startup="App_Startup">
     <Application.Resources>
         <SolidColorBrush x:Key="WilkenBlue" Color="#0E54A8"/>
         <SolidColorBrush x:Key="WilkenBlueDark" Color="#174B87"/>
