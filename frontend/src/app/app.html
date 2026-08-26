@@ -1,0 +1,35 @@
+@if (showShell) {
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark">W</span>
+        <span class="brand-title">Wilken CS/2</span>
+        <span class="brand-sub">Export Automation</span>
+      </div>
+
+      <nav>
+        <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
+        <a routerLink="/new-run" routerLinkActive="active">New Run</a>
+        <a routerLink="/jobs" routerLinkActive="active">Jobs</a>
+        <a routerLink="/audit" routerLinkActive="active">Audit Report</a>
+      </nav>
+
+      <div class="mode-toggle"
+           [title]="api.mode() === 'mock'
+             ? 'Simulation runs entirely in this browser tab and persists to localStorage.'
+            : 'Talks to the .NET backend API.'">
+        <button [class.selected]="api.mode() === 'mock'" (click)="api.setMode('mock')">Mock</button>
+        <button [class.selected]="api.mode() === 'backend'" (click)="api.setMode('backend')">Backend API</button>
+      </div>
+
+      <div class="session">
+        <span class="session-name">{{ auth.user()?.displayName }}</span>
+        <button class="small" type="button" (click)="auth.logout()">Logout</button>
+      </div>
+    </div>
+  </header>
+}
+
+<main class="content" [class.full]="!showShell">
+  <router-outlet />
+</main>

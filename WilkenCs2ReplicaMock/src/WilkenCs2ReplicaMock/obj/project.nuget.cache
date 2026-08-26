@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "w3dC0AYMxlM=",
+  "success": true,
+  "projectFilePath": "c:\\Users\\tanuj.rathore\\Documents\\GitHub\\Wilken_CS_Project\\WilkenCs2ReplicaMock\\src\\WilkenCs2ReplicaMock\\WilkenCs2ReplicaMock.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\tanuj.rathore\\AppData\\Local\\Temp\\cursor-sandbox-cache\\f77894b5975580cd68276bf82aca498c\\nuget\\microsoft.netcore.app.ref\\8.0.29\\microsoft.netcore.app.ref.8.0.29.nupkg.sha512",
+    "C:\\Users\\tanuj.rathore\\AppData\\Local\\Temp\\cursor-sandbox-cache\\f77894b5975580cd68276bf82aca498c\\nuget\\microsoft.windowsdesktop.app.ref\\8.0.29\\microsoft.windowsdesktop.app.ref.8.0.29.nupkg.sha512",
+    "C:\\Users\\tanuj.rathore\\AppData\\Local\\Temp\\cursor-sandbox-cache\\f77894b5975580cd68276bf82aca498c\\nuget\\microsoft.aspnetcore.app.ref\\8.0.29\\microsoft.aspnetcore.app.ref.8.0.29.nupkg.sha512",
+    "C:\\Users\\tanuj.rathore\\AppData\\Local\\Temp\\cursor-sandbox-cache\\f77894b5975580cd68276bf82aca498c\\nuget\\microsoft.netcore.app.host.win-x64\\8.0.29\\microsoft.netcore.app.host.win-x64.8.0.29.nupkg.sha512"
+  ],
+  "logs": []
+}

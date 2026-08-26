@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-WilkenAutomation.Worker-29ed765f-1384-4cfe-8306-4bf41276fc7e</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\WilkenAutomation.Application\ExportDefinitions\catalog.json" Link="export-definitions.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="TEST-ENVIRONMENT.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" Condition="Exists('appsettings.Local.json')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WilkenAutomation.Application\WilkenAutomation.Application.csproj" />
+    <ProjectReference Include="..\WilkenAutomation.Infrastructure\WilkenAutomation.Infrastructure.csproj" />
+    <ProjectReference Include="..\WilkenAutomation.TestDesktop\WilkenAutomation.TestDesktop.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\WilkenCs2ReplicaMock\src\WilkenCs2ReplicaMock\WilkenCs2ReplicaMock.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Target Name="CopyDesktopApps" AfterTargets="Build">
+    <ItemGroup>
+      <_TestDesktopOut Include="..\WilkenAutomation.TestDesktop\bin\$(Configuration)\net8.0-windows\**\*.*" />
+      <_ReplicaOut Include="..\..\WilkenCs2ReplicaMock\src\WilkenCs2ReplicaMock\bin\$(Configuration)\net8.0-windows\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TestDesktopOut)" DestinationFolder="$(OutputPath)%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_ReplicaOut)" DestinationFolder="$(OutputPath)Replica\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

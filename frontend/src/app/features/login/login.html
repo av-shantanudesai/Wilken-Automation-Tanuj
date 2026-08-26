@@ -1,0 +1,38 @@
+<div class="login-page">
+  <div class="login-card card">
+    <div class="brand">
+      <span class="brand-mark">W</span>
+      <div>
+        <h1>Wilken CS/2</h1>
+        <p class="subtitle">Sign in to run exports and view your job history.</p>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button type="button" [class.selected]="!registering()" (click)="registering.set(false)">Login</button>
+      <button type="button" [class.selected]="registering()" (click)="registering.set(true)">Register</button>
+    </div>
+
+    <form (ngSubmit)="submit()">
+      @if (registering()) {
+        <label>Display name</label>
+        <input [(ngModel)]="displayName" name="displayName" placeholder="Your name" autocomplete="name" />
+      }
+
+      <label>Email</label>
+      <input [(ngModel)]="email" name="email" type="email" required placeholder="you@company.com" autocomplete="username" />
+
+      <label>Password</label>
+      <input [(ngModel)]="password" name="password" type="password" required minlength="8"
+             placeholder="At least 8 characters, with a letter and a digit" autocomplete="current-password" />
+
+      @if (error()) {
+        <p class="err-text">{{ error() }}</p>
+      }
+
+      <button class="primary" type="submit" [disabled]="busy()">
+        {{ busy() ? 'Please wait…' : (registering() ? 'Create account' : 'Sign in') }}
+      </button>
+    </form>
+  </div>
+</div>

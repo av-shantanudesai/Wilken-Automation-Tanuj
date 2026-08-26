@@ -1,0 +1,98 @@
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.error-banner {
+  border-color: var(--err);
+  color: var(--err);
+  margin-bottom: 16px;
+}
+
+.preset-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+
+  input { width: 100%; }
+}
+
+.check-row {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+    font-size: 13.5px;
+    margin: 0;
+    cursor: pointer;
+  }
+}
+
+.notes-row,
+.path-row {
+  margin-bottom: 16px;
+  input { width: 100%; }
+}
+
+.path-row .hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.workflow-note {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #2b6cb0) 8%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+
+  ol {
+    margin: 8px 0 8px 18px;
+    padding: 0;
+  }
+
+  code {
+    font-size: 12px;
+  }
+
+  p { margin: 0; color: var(--text-dim, #667085); }
+}
+
+.summary-card {
+  position: sticky;
+  top: 26px;
+  text-align: center;
+
+  .calc {
+    color: var(--text-dim);
+    span { color: var(--text); font-weight: 700; }
+  }
+
+  .total {
+    font-size: 46px;
+    font-weight: 800;
+    color: var(--accent);
+    margin: 8px 0;
+  }
+
+  .create-btn { width: 100%; margin-top: 10px; }
+}

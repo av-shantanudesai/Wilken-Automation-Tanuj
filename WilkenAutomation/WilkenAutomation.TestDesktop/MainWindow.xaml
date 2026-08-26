@@ -1,0 +1,167 @@
+<Window x:Class="WilkenAutomation.TestDesktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Wilken CS/2 Test Desktop"
+        Height="720" Width="980"
+        WindowStartupLocation="CenterScreen"
+        ShowActivated="False"
+        WindowState="Minimized"
+        ShowInTaskbar="True"
+        Background="#F4F6F8">
+    <Grid>
+        <DockPanel x:Name="MainWorkspace" Visibility="Collapsed">
+            <Border DockPanel.Dock="Top" Background="#1B2A4A" Padding="14,10">
+                <DockPanel>
+                    <TextBlock Text="Wilken CS/2  |  Asset Accounting (TEST)"
+                               Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="SessionLabel" DockPanel.Dock="Right"
+                               Text="Session: Ready" Foreground="#9AE6B4"
+                               HorizontalAlignment="Right"/>
+                </DockPanel>
+            </Border>
+
+            <Menu DockPanel.Dock="Top" Background="#E8EEF5">
+                <MenuItem Header="_Asset Accounting" AutomationProperties.AutomationId="AssetAccountingMenu"
+                          Click="OpenAssetAccounting_Click"/>
+                <MenuItem Header="_Spool" AutomationProperties.AutomationId="SpoolMenu"
+                          Click="OpenSpool_Click"/>
+            </Menu>
+
+            <StatusBar DockPanel.Dock="Bottom" Background="#1B2A4A">
+                <StatusBarItem>
+                    <TextBlock x:Name="FooterStatus" Foreground="White" Text="Logged in. Select client, year and department."/>
+                </StatusBarItem>
+            </StatusBar>
+
+            <Grid Margin="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2.1*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="1.8*"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Background="White" BorderBrush="#D0D7E2" BorderThickness="1" Padding="16" CornerRadius="4">
+                    <StackPanel>
+                        <TextBlock Text="Filters" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+                        <TextBlock Text="Client" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="ClientCombo" AutomationProperties.AutomationId="ClientField"
+                                  IsEditable="True" IsTextSearchEnabled="True"
+                                  Height="28" Margin="0,0,0,12"/>
+
+                        <StackPanel x:Name="AssetAccountingPanel" Visibility="Collapsed">
+                            <TextBlock x:Name="AssetAccountingMarker"
+                                       AutomationProperties.AutomationId="AssetAccountingWindowMarker"
+                                       Text="Asset Accounting"
+                                       FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="Fiscal Year" Margin="0,0,0,4"/>
+                            <TextBox x:Name="FiscalYearBox" AutomationProperties.AutomationId="FiscalYearField"
+                                     Height="28" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="Department" Margin="0,0,0,4"/>
+                            <ComboBox x:Name="DepartmentCombo" AutomationProperties.AutomationId="DepartmentField"
+                                      IsEditable="True" IsTextSearchEnabled="True"
+                                      Height="28" Margin="0,0,0,12"/>
+
+                            <Button x:Name="ExecuteButton" AutomationProperties.AutomationId="ExecuteButton"
+                                    Content="Execute / Run evaluation"
+                                    Height="34" Margin="0,8,0,12"
+                                    Click="Execute_Click"/>
+
+                            <TextBlock Text="Report status"/>
+                            <TextBlock x:Name="ReportStatusLabel"
+                                       AutomationProperties.AutomationId="ReportStatusIndicator"
+                                       Text="Idle"
+                                       FontWeight="SemiBold"
+                                       Margin="0,4,0,8"/>
+
+                            <TextBlock Text="Expected archive name" Foreground="#556"/>
+                            <TextBlock x:Name="ExpectedFileLabel"
+                                       AutomationProperties.AutomationId="ExpectedFileName"
+                                       Text="(run evaluation first)"
+                                       FontFamily="Consolas" TextWrapping="Wrap"
+                                       Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Background="White" BorderBrush="#D0D7E2" BorderThickness="1" Padding="16" CornerRadius="4">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="Spool / Reports" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="ReportSummaryLabel" DockPanel.Dock="Top"
+                                   Text="No report yet. Execute evaluation to generate one."
+                                   TextWrapping="Wrap" Foreground="#556" Margin="0,0,0,8"/>
+                        <Button x:Name="ExportButton" DockPanel.Dock="Bottom"
+                                AutomationProperties.AutomationId="ExportButton"
+                                Content="Export selected report"
+                                Height="34" Margin="0,12,0,0"
+                                IsEnabled="False"
+                                Click="Export_Click"/>
+                        <TextBox x:Name="ReportPreviewBox" DockPanel.Dock="Bottom"
+                                 Height="140" Margin="0,8,0,0"
+                                 IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Text="Report preview appears here after Execute."/>
+                        <ListBox x:Name="SpoolList" AutomationProperties.AutomationId="SpoolList"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </DockPanel>
+
+        <Border x:Name="LoginPanel" Background="#1B2A4A">
+            <Border Width="380" Padding="24" Background="White" CornerRadius="6" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="Wilken CS/2 Test Login" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <TextBlock Text="Dummy desktop for UI automation testing. Username: tester  Password: tester"
+                               TextWrapping="Wrap" Foreground="#556" Margin="0,0,0,16"/>
+                    <TextBlock Text="Username"/>
+                    <TextBox x:Name="LoginUsernameBox" AutomationProperties.AutomationId="LoginUsername"
+                             Height="28" Margin="0,4,0,12"/>
+                    <TextBlock Text="Password"/>
+                    <TextBox x:Name="LoginPasswordBox" AutomationProperties.AutomationId="LoginPassword"
+                             Height="28" Margin="0,4,0,16"/>
+                    <Button x:Name="LoginButton" AutomationProperties.AutomationId="LoginButton"
+                            Content="Login" Height="34" Click="Login_Click"/>
+                    <TextBlock x:Name="LoginError" Foreground="#C53030" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <Border x:Name="SaveDialogPanel" Visibility="Collapsed" Background="#88000000"
+                AutomationProperties.AutomationId="SaveExportDialog"
+                AutomationProperties.Name="Save export">
+            <Border Width="560" Padding="20" Background="White" CornerRadius="6" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="Save export" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock Text="File name / path"/>
+                    <TextBox x:Name="SaveFileNameBox" AutomationProperties.AutomationId="SaveDialogFileName"
+                             Height="28" Margin="0,4,0,8"/>
+                    <TextBlock x:Name="SaveHintLabel" Foreground="#556" TextWrapping="Wrap" Margin="0,0,0,16"
+                               Text="Worker types a temp path here, then moves the original to Exports/Mandant_xxx/yyyy/."/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel" Width="90" Height="32" Margin="0,0,8,0" Click="CancelSave_Click"/>
+                        <Button x:Name="SaveConfirmButton" AutomationProperties.AutomationId="SaveDialogConfirm"
+                                Content="Save" Width="90" Height="32" Click="ConfirmSave_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <Border x:Name="NoticePanel" Visibility="Collapsed" Background="#88000000"
+                AutomationProperties.AutomationId="UnexpectedDialog"
+                AutomationProperties.Name="Wilken Notice">
+            <Border Width="420" Padding="20" Background="White" CornerRadius="6" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="Wilken Notice" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <TextBlock x:Name="NoticeMessage"
+                               Text="Informational popup (printer / spool notice). Automation should click OK and continue."
+                               TextWrapping="Wrap" Margin="0,0,0,16"/>
+                    <Button x:Name="NoticeOkButton" AutomationProperties.AutomationId="DialogOkButton"
+                            Content="OK" Width="90" Height="32" HorizontalAlignment="Right"
+                            Click="DismissNotice_Click"/>
+                </StackPanel>
+            </Border>
+        </Border>
+    </Grid>
+</Window>

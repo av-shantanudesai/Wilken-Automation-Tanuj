@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>wilken-automation-api-8c3d1f2a-4b9e-4e6c-9a11-2f7d6b4c1e90</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\WilkenAutomation.Application\ExportDefinitions\catalog.json" Link="export-definitions.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" Condition="Exists('appsettings.Local.json')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WilkenAutomation.Application\WilkenAutomation.Application.csproj" />
+    <ProjectReference Include="..\WilkenAutomation.Infrastructure\WilkenAutomation.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

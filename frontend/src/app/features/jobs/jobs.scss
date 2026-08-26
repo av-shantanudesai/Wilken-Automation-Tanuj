@@ -1,0 +1,63 @@
+.error-banner {
+  border-color: var(--err);
+  color: var(--err);
+  margin-bottom: 16px;
+}
+
+.filter-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+  margin-bottom: 14px;
+
+  .spacer { flex: 1; }
+  .count { padding-bottom: 8px; }
+  input, select { min-width: 130px; }
+}
+
+.row { cursor: pointer; }
+
+.detail-row td {
+  background: var(--bg-soft);
+  padding: 14px 16px;
+}
+
+.detail {
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px 24px;
+    margin-bottom: 14px;
+
+    label { margin-bottom: 2px; }
+    span { overflow-wrap: anywhere; }
+  }
+}
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.log-line {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+  align-items: baseline;
+
+  .lvl-INFO { color: var(--accent); }
+  .lvl-WARN { color: var(--warn); }
+  .lvl-ERROR { color: var(--err); }
+  .action { color: var(--text-dim); min-width: 140px; }
+}
+
+.pager {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 12px;
+}

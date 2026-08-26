@@ -1,0 +1,20 @@
+Top-level windows in this Windows session (run this inside the Citrix desktop, not in the browser PC):
+Captured: 2026-08-24T01:52:39.5927575+05:30
+----------------------------------------------------------------------------------------------------
+PID 13716  Process='explorer' Framework='Win32' Class='Shell_TrayWnd' Children=3 Title='Taskbar'  [Win32]
+PID 24088  Process='devenv' Framework='WPF' Class='Window' Children=15 Title='Wilken_CS_Project - Microsoft Visual Studio'  [WPF]
+PID 35404  Process='Cursor' Framework='Win32' Class='Chrome_WidgetWin_1' Children=2 Title='new-run.scss - Wilken_CS_Project - Cursor'  [Win32]
+PID 17212  Process='chrome' Framework='Win32' Class='Chrome_WidgetWin_1' Children=2 Title='Wilken CS/2 Export Automation - Google Chrome'  [Citrix/browser remote display — cannot automate]
+PID 28936  Process='Code' Framework='Win32' Class='Chrome_WidgetWin_1' Children=2 Title='environment.ts - Wilken_CS_Project - Visual Studio Code'  [Win32]
+PID 13716  Process='explorer' Framework='Win32' Class='CabinetWClass' Children=4 Title='Desktop - File Explorer'  [Win32]
+PID 4224   Process='ms-teams' Framework='Win32' Class='TeamsWebView' Children=15 Title='Chat | Automated Wilken 4401 Plant Export | Microsoft Teams'  [Win32]
+PID 19212  Process='msedge' Framework='Win32' Class='Chrome_WidgetWin_1' Children=2 Title='View Definition - 5.1 Anlagenbuchhaltung Prozesse – Alle Anlagen nach Konten ver...'  [Citrix/browser remote display — cannot automate]
+PID 35404  Process='Cursor' Framework='Win32' Class='Chrome_WidgetWin_1' Children=2 Title='Cursor Agents'  [Win32]
+PID 13044  Process='olk' Framework='Win32' Class='Outlook Host' Children=3 Title='Verify your email address - Tanuj Rathore - Outlook'  [Win32]
+PID 23792  Process='Notepad' Framework='Win32' Class='Notepad' Children=5 Title='credentials.txt - Notepad'  [Win32]
+PID 26924  Process='PAD.Console.Host' Framework='WPF' Class='WinAutomationWindow' Children=6 Title='Power Automate'  [WPF]
+PID 13044  Process='olk' Framework='Win32' Class='Outlook Host' Children=3 Title='Mail - Tanuj Rathore - Outlook'  [Win32]
+PID 13716  Process='explorer' Framework='Win32' Class='Progman' Children=1 Title='Program Manager'  [Win32]
+
+Next: open Wilken, log in, then dump a window:
+  dotnet run --project WilkenAutomation.Worker -- --inspect "<Title from the list>"

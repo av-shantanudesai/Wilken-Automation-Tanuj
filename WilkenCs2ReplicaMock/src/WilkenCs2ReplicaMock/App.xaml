@@ -1,0 +1,45 @@
+<Application x:Class="WilkenCs2ReplicaMock.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Startup="App_Startup">
+    <Application.Resources>
+        <SolidColorBrush x:Key="WilkenBlue" Color="#0E54A8"/>
+        <SolidColorBrush x:Key="WilkenBlueDark" Color="#174B87"/>
+        <SolidColorBrush x:Key="WilkenLightBlue" Color="#D7E8FB"/>
+        <SolidColorBrush x:Key="WilkenPanelBlue" Color="#C4D9F2"/>
+        <SolidColorBrush x:Key="WilkenBackground" Color="#D8E8FA"/>
+        <SolidColorBrush x:Key="WilkenForm" Color="#ECF3FC"/>
+        <SolidColorBrush x:Key="WilkenBorder" Color="#879CB7"/>
+        <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#1B2735"/></Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="21"/><Setter Property="Margin" Value="1"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="Padding" Value="3,0"/>
+            <Setter Property="BorderBrush" Value="#97A9BF"/><Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="White"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Height" Value="21"/><Setter Property="Margin" Value="1"/>
+            <Setter Property="BorderBrush" Value="#97A9BF"/><Setter Property="Background" Value="White"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Height" Value="22"/><Setter Property="Padding" Value="7,1"/><Setter Property="Margin" Value="1"/>
+            <Setter Property="BorderBrush" Value="#8B9CB1"/><Setter Property="Background" Value="#E8EEF6"/>
+        </Style>
+        <Style TargetType="CheckBox"><Setter Property="Margin" Value="1,2"/></Style>
+        <Style TargetType="RadioButton"><Setter Property="Margin" Value="1,2"/></Style>
+        <Style TargetType="TabControl"><Setter Property="Background" Value="#EEF4FC"/></Style>
+        <Style TargetType="TabItem"><Setter Property="Padding" Value="10,2"/><Setter Property="FontSize" Value="11"/></Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="7,4"/>
+            <Setter Property="Padding" Value="8,6,7,7"/>
+            <Setter Property="BorderThickness" Value="0,1,0,0"/>
+            <Setter Property="BorderBrush" Value="#879FBE"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style TargetType="DataGrid">
+            <Setter Property="RowHeight" Value="22"/><Setter Property="ColumnHeaderHeight" Value="22"/>
+            <Setter Property="BorderBrush" Value="#8EA2BC"/><Setter Property="HorizontalGridLinesBrush" Value="#DEE5EF"/>
+            <Setter Property="VerticalGridLinesBrush" Value="#D7DFEA"/>
+        </Style>
+    </Application.Resources>
+</Application>

@@ -1,0 +1,100 @@
+<div class="page-header">
+  <h1>Audit Report</h1>
+  <p class="subtitle">
+    Completeness check and full evidence for run
+    <span class="mono">{{ api.selectedRunId() ?? '(none selected)' }}</span>
+  </p>
+</div>
+
+@if (error()) {
+  <div class="card error-banner">{{ error() }}</div>
+}
+
+@if (report(); as r) {
+  <div class="card summary">
+    <div class="summary-head">
+      <h2>{{ r.runId }} <span class="badge {{ r.runStatus }}">{{ r.runStatus }}</span></h2>
+      <div class="actions">
+        <button class="small" (click)="load()">Refresh</button>
+        <button class="small primary" (click)="downloadCsv()">Download CSV</button>
+      </div>
+    </div>
+
+    <div class="reconcile" [class.ok]="r.reconciles" [class.bad]="!r.reconciles">
+      @if (r.reconciles) {
+        ✓ Reconciles: SUCCESS_WITH_DATA + SUCCESS_EMPTY + FAILED_FINAL + PENDING + RUNNING + RETRY
+        = {{ r.accountedJobs | number }} = expected {{ r.expectedJobs | number }}
+      } @else {
+        ✗ MISMATCH: accounted {{ r.accountedJobs | number }} ≠ expected {{ r.expectedJobs | number }} — investigate!
+      }
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat"><div class="num">{{ r.expectedJobs | number }}</div><div class="lbl">Expected</div></div>
+      <div class="stat"><div class="num">{{ r.accountedJobs | number }}</div><div class="lbl">Accounted</div></div>
+      <div class="stat ok"><div class="num">{{ r.counts.successWithData | number }}</div><div class="lbl">Success with data</div></div>
+      <div class="stat teal"><div class="num">{{ r.counts.successEmpty | number }}</div><div class="lbl">Success empty</div></div>
+      <div class="stat err"><div class="num">{{ r.counts.failedFinal | number }}</div><div class="lbl">Failed final</div></div>
+      <div class="stat"><div class="num">{{ r.counts.open | number }}</div><div class="lbl">Open</div></div>
+      <div class="stat"><div class="num">{{ r.successRatePercent }}%</div><div class="lbl">Success rate</div></div>
+    </div>
+    <p class="dim time-row">
+      Started: {{ r.startedAt ? (r.startedAt | date: 'yyyy-MM-dd HH:mm:ss') : '–' }} ·
+      Completed: {{ r.completedAt ? (r.completedAt | date: 'yyyy-MM-dd HH:mm:ss') : '–' }}
+    </p>
+  </div>
+
+  @if (r.failedFinalJobs.length > 0) {
+    <div class="card failed-card">
+      <h2 class="err-text">FAILED_FINAL jobs ({{ r.failedFinalJobs.length }})</h2>
+      <table>
+        <thead>
+          <tr><th>Job ID</th><th>Client</th><th>Year</th><th>Department</th><th>Attempts</th><th>Error</th></tr>
+        </thead>
+        <tbody>
+          @for (job of r.failedFinalJobs; track job.id) {
+            <tr>
+              <td class="mono">{{ job.id }}</td>
+              <td>{{ job.client }}</td>
+              <td>{{ job.fiscalYear }}</td>
+              <td>{{ job.department }}</td>
+              <td>{{ job.attemptCount }}</td>
+              <td class="err-text">[{{ job.errorCode }}] {{ job.errorMessage }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+  <div class="card">
+    <h2>Detailed job evidence ({{ r.jobs.length | number }})</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Job ID</th><th>Status</th><th>Att.</th><th>File</th><th>Size</th>
+            <th>SHA-256</th><th>Records</th><th>Runtime</th><th>Validation</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (job of r.jobs; track job.id) {
+            <tr>
+              <td class="mono">{{ job.id }}</td>
+              <td><span class="badge {{ job.status }}">{{ job.status }}</span></td>
+              <td>{{ job.attemptCount }}</td>
+              <td class="mono" [title]="job.filePath">{{ job.fileName ?? '–' }}</td>
+              <td>{{ job.fileSizeBytes != null ? (job.fileSizeBytes | number) : '–' }}</td>
+              <td class="mono" [title]="job.sha256">{{ shortSha(job.sha256) }}</td>
+              <td>{{ job.recordCount ?? '–' }}</td>
+              <td>{{ job.durationMs != null ? (job.durationMs | number) + ' ms' : '–' }}</td>
+              <td>{{ job.validationOutcome }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+} @else if (!error()) {
+  <div class="card"><p class="dim">Select a run on the dashboard first.</p></div>
+}

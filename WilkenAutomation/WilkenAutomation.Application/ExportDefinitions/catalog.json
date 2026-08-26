@@ -1,0 +1,120 @@
+{
+  "definitions": [
+    {
+      "name": "Zugangsliste",
+      "type": "SPOOL",
+      "module": "Asset Accounting",
+      "displayName": "Zugangsliste",
+      "requires": [ "CLIENT", "YEAR", "ACCOUNTING_LAW" ],
+      "defaults": { "ACCOUNTING_LAW": "Handelsrecht" },
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "SPOOL_CREATED"
+      },
+      "export": {
+        "format": "XLSX",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx"
+      },
+      "spoolMatch": {
+        "listName": "5J0102",
+        "extension": "001",
+        "reportDescription": "Zugangsliste",
+        "excludeDescription": "Protokoll",
+        "user": "BHL"
+      },
+      "replicaNavId": "Nav_ProzesseVerwalten",
+      "replicaTitleContains": "Zugangsliste erstellen",
+      "replicaProcessProgram": "CAB024",
+      "replicaProcessNumber": "001",
+      "replicaProcessName": "Zugangsliste"
+    },
+    {
+      "name": "Anlagenspiegel",
+      "type": "SPOOL",
+      "module": "Asset Accounting",
+      "displayName": "Anlagenspiegel nach Anlagen",
+      "requires": [ "CLIENT", "YEAR", "ACCOUNTING_LAW" ],
+      "defaults": { "ACCOUNTING_LAW": "Steuerrecht" },
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "SPOOL_CREATED"
+      },
+      "export": {
+        "format": "XLSX",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx"
+      },
+      "spoolMatch": {
+        "listName": "4J0402",
+        "extension": "001",
+        "reportDescription": "Anlagenspiegel nach Anlagen",
+        "excludeDescription": "Alle Anlagen nach Konten verdichtet",
+        "user": "BHL"
+      },
+      "replicaNavId": "Nav_ProzesseVerwalten",
+      "replicaTitleContains": "Anlagenspiegel erstellen",
+      "replicaProcessProgram": "CAB015",
+      "replicaProcessNumber": "001",
+      "replicaProcessName": "Anlagenspiegel nach Anlagen"
+    },
+    {
+      "name": "AlleAnlagenNachKontenVerdichtet",
+      "type": "SPOOL",
+      "module": "Asset Accounting",
+      "displayName": "Alle Anlagen nach Konten verdichtet",
+      "requires": [ "CLIENT", "YEAR", "ACCOUNTING_LAW" ],
+      "defaults": { "ACCOUNTING_LAW": "Steuerrecht" },
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "SPOOL_CREATED"
+      },
+      "export": {
+        "format": "XLSX",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{ACCOUNTINGLAW}_{TIMESTAMP}.xlsx"
+      },
+      "spoolMatch": {
+        "listName": "4J0402",
+        "extension": "003",
+        "reportDescription": "Alle Anlagen nach Konten verdichtet",
+        "excludeDescription": "Protokoll",
+        "user": "BHL"
+      },
+      "replicaNavId": "Nav_ProzesseVerwalten",
+      "replicaTitleContains": "Anlagenspiegel erstellen",
+      "replicaProcessProgram": "CAB015",
+      "replicaProcessNumber": "003",
+      "replicaProcessName": "Alle Anlagen nach Konten verdichtet"
+    },
+    {
+      "name": "MasterData",
+      "type": "VIEW",
+      "module": "Asset Accounting",
+      "displayName": "Asset master data",
+      "requires": [ "CLIENT" ],
+      "defaults": {},
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "DATA_READY"
+      },
+      "export": {
+        "format": "CSV",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{TIMESTAMP}.csv"
+      }
+    },
+    {
+      "name": "Bookings",
+      "type": "VIEW",
+      "module": "Asset Accounting",
+      "displayName": "Bookings by period",
+      "requires": [ "CLIENT", "YEAR", "PERIOD" ],
+      "defaults": { "PERIOD": "01-12" },
+      "execution": {
+        "startAction": "Execute",
+        "completionDetection": "DATA_READY"
+      },
+      "export": {
+        "format": "CSV",
+        "filename": "WILKEN_{CLIENT}_{EXPORT}_{YEAR}_{PERIOD}_{TIMESTAMP}.csv"
+      }
+    }
+  ]
+}

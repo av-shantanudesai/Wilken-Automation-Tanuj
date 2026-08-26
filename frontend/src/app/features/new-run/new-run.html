@@ -1,0 +1,163 @@
+<div class="page-header">
+  <h1>New Export Run</h1>
+  <p class="subtitle">
+    Jobs are generated from the selected export definitions and only the dimensions each recipe requires.
+  </p>
+</div>
+
+@if (error()) {
+  <div class="card error-banner">{{ error() }}</div>
+}
+
+<div class="layout">
+  <div class="card">
+    <div class="preset-row">
+      <button (click)="applyPilot()">Pilot preset (2 × 2 × 2 = 8 jobs)</button>
+      <button (click)="applyFull()">Full scope (78 × 23 × 2 = 3,588 jobs)</button>
+    </div>
+
+    <h2>Scope</h2>
+    <div class="path-row">
+      <label>Mandant / Client IDs</label>
+      <input type="text"
+             placeholder="e.g. 02  or  001, 002, 041"
+             [ngModel]="clientsText()"
+             (ngModelChange)="clientsText.set($event)" />
+      <p class="hint">Wilken Mandant codes for job generation only. You type the same Mandant in Wilken Anmeldung yourself — the worker never fills login. Example: dashboard <code>02</code> and login Mandant <code>02</code>.</p>
+    </div>
+    <div class="form-grid">
+      <div>
+        <label>Number of clients (if IDs empty)</label>
+        <input type="number" min="1" max="999" [ngModel]="clientCount()" (ngModelChange)="clientCount.set(+$event)" />
+      </div>
+      <div>
+        <label>Fiscal year from</label>
+        <input type="number" [ngModel]="yearFrom()" (ngModelChange)="yearFrom.set(+$event)" />
+      </div>
+      <div>
+        <label>Fiscal year to</label>
+        <input type="number" [ngModel]="yearTo()" (ngModelChange)="yearTo.set(+$event)" />
+      </div>
+      <div>
+        <label>Max attempts per job</label>
+        <input type="number" min="1" max="10" [ngModel]="maxAttempts()" (ngModelChange)="maxAttempts.set(+$event)" />
+      </div>
+    </div>
+
+    <h2>Export definitions</h2>
+    <div class="check-row">
+      @for (def of definitions(); track def.name) {
+        <label class="check">
+          <input type="checkbox"
+                 [ngModel]="selectedExports().includes(def.name)"
+                 (ngModelChange)="toggleExport(def.name, $event)" />
+          {{ def.displayName }} ({{ def.type }} / {{ def.format }})
+        </label>
+      }
+    </div>
+
+    <div class="check-row">
+      <label class="check">
+        <input type="checkbox" [ngModel]="commercialLaw()" (ngModelChange)="commercialLaw.set($event)" />
+        Handelsrecht (Commercial Law)
+      </label>
+      <label class="check">
+        <input type="checkbox" [ngModel]="taxLaw()" (ngModelChange)="taxLaw.set($event)" />
+        Steuerrecht (Tax Law)
+      </label>
+      <label class="check">
+        <input type="checkbox" [ngModel]="autoStart()" (ngModelChange)="autoStart.set($event)" />
+        Start immediately
+      </label>
+    </div>
+
+    <h2>Wilken desktop and export folder</h2>
+    <div class="workflow-note">
+      <strong>Dummy Wilken on this PC</strong>
+      <ol>
+        <li>Start API, this dashboard, and the worker with
+          <code>dotnet run --project WilkenAutomation.Worker --no-launch-profile -- --desktop-test</code>
+          — not <code>--replica-login-smoke</code> (that CLI starts jobs immediately and skips this page).</li>
+        <li>Leave the worker idle. Dummy Wilken must not open yet.</li>
+        <li>Set Mandant here to the same value you will type in Anmeldung (replica default is <code>02</code>). Keep <em>Start immediately</em> checked.</li>
+        <li>Click <em>Generate jobs</em>. The worker claims the first job, then opens the dummy desktop.</li>
+        <li>Complete EHP (Start Wilken) and Anmeldung (Anmelden). Automation starts at Prozesse verwalten after that.</li>
+      </ol>
+      <p>Cancel any old running run first, or the worker may open Wilken before you click Generate.</p>
+    </div>
+    <div class="workflow-note">
+      <strong>Real Citrix test environment</strong>
+      <ol>
+        <li>Enter the same Mandant on this page that you will type in Wilken Anmeldung (e.g. 02). Generate jobs. The dashboard does not log you in.</li>
+        <li>On the Citrix Test Environment desktop, start Wilken TEST / Wilken VDI.</li>
+        <li>Complete EHP (Country, Company, Start Wilken), any warning with OK, then Anmeldung (Benutzer, Passwort, Mandant, Anmelden).</li>
+        <li>Wait until the main screen with Navigation is visible. The worker waits for that screen, then starts at Prozesse verwalten.</li>
+        <li>The worker must run <em>inside that same desktop</em> — not on the PC that only has the browser.</li>
+      </ol>
+      <p>The worker never types Wilken username, password, or Mandant into login. It does not click Start Wilken or Anmelden.</p>
+    </div>
+    <div class="path-row">
+      <label>Wilken process path (optional, attach identity only)</label>
+      <input type="text"
+             placeholder="Leave empty for Citrix attach-only. Replica exe path for DesktopTest."
+             [ngModel]="wilkenExecutablePath()"
+             (ngModelChange)="wilkenExecutablePath.set($event)" />
+      <p class="hint">Real test: leave empty — Wilken is already open after your Citrix login. DesktopTest/replica: path of the dummy exe to launch.</p>
+    </div>
+    <div class="path-row">
+      <label>Export report folder</label>
+      <input type="text"
+             placeholder="C:\WilkenExports"
+             [ngModel]="exportRootDirectory()"
+             (ngModelChange)="exportRootDirectory.set($event)" />
+      <p class="hint">Folder where original validated exports are stored (Mandant / year subfolders). Leave empty for the Worker default.</p>
+    </div>
+
+    <div class="notes-row">
+      <label>Notes</label>
+      <input type="text" placeholder="e.g. Pilot acceptance run" [ngModel]="notes()" (ngModelChange)="notes.set($event)" />
+    </div>
+
+    <h2>Simulation (dummy Wilken adapter)</h2>
+    <div class="form-grid">
+      <div>
+        <label>Min job seconds</label>
+        <input type="number" min="0.5" step="0.5" [ngModel]="minJobSeconds()" (ngModelChange)="minJobSeconds.set(+$event)" />
+      </div>
+      <div>
+        <label>Max job seconds</label>
+        <input type="number" min="0.5" step="0.5" [ngModel]="maxJobSeconds()" (ngModelChange)="maxJobSeconds.set(+$event)" />
+      </div>
+      <div>
+        <label>Failure rate (0–1)</label>
+        <input type="number" min="0" max="1" step="0.01" [ngModel]="failureRate()" (ngModelChange)="failureRate.set(+$event)" />
+      </div>
+      <div>
+        <label>Crash rate (0–1)</label>
+        <input type="number" min="0" max="1" step="0.01" [ngModel]="crashRate()" (ngModelChange)="crashRate.set(+$event)" />
+      </div>
+      <div>
+        <label>Empty-period rate (0–1)</label>
+        <input type="number" min="0" max="1" step="0.01" [ngModel]="emptyRate()" (ngModelChange)="emptyRate.set(+$event)" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card summary-card">
+    <h2>Expected job count</h2>
+    <div class="calc">
+      <span>{{ effectiveClientCount() }}</span> clients ×
+      <span>{{ yearCount() }}</span> years ×
+      <span>{{ departmentCount() }}</span> laws ×
+      <span>{{ selectedExports().length }}</span> exports
+    </div>
+    <div class="total" [class.err-text]="expectedJobs() === 0">{{ expectedJobs() }}</div>
+    <p class="dim">
+      Each selected recipe expands only its required dimensions (for example Master Data = client only).
+      SPOOL recipes still export one correlated spool row per job.
+    </p>
+    <button class="primary create-btn" (click)="create()" [disabled]="busy() || expectedJobs() === 0">
+      {{ busy() ? 'Generating…' : 'Generate ' + expectedJobs() + ' jobs' }}
+    </button>
+  </div>
+</div>
