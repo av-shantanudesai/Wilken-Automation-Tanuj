@@ -81,15 +81,17 @@ internal static class ReplicaSmokeRunner
             catalog,
             loggerFactory.CreateLogger<WindowsWilkenAutomationService>());
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(manualLogin ? 20 : 8));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(manualLogin ? 25 : 15));
         var runConfig = new RunConfig { EnableContentValidation = false };
 
         try
         {
-            await RunOneAsync(wilken, "smoke-1", cts.Token, runConfig);
-            Console.WriteLine("SMOKE first job OK — starting second job (repeat / Liste anzeigen re-entry).");
-            await RunOneAsync(wilken, "smoke-2", cts.Token, runConfig);
-            Console.WriteLine("SMOKE both jobs succeeded.");
+            await RunOneAsync(wilken, "smoke-1", "Zugangsliste", "Handelsrecht", cts.Token, runConfig);
+            Console.WriteLine("SMOKE first job OK — starting second Zugangsliste (InternalWindow_Close + repeat).");
+            await RunOneAsync(wilken, "smoke-2", "Zugangsliste", "Handelsrecht", cts.Token, runConfig);
+            Console.WriteLine("SMOKE second job OK — starting Anlagenspiegel (Steuerrecht).");
+            await RunOneAsync(wilken, "smoke-3", "Anlagenspiegel", "Steuerrecht", cts.Token, runConfig);
+            Console.WriteLine("SMOKE all three jobs succeeded (2× Zugangsliste, 1× Anlagenspiegel).");
             return 0;
         }
         catch (Exception ex)
@@ -110,6 +112,8 @@ internal static class ReplicaSmokeRunner
     private static async Task RunOneAsync(
         WindowsWilkenAutomationService wilken,
         string jobId,
+        string exportDefinition,
+        string department,
         CancellationToken ct,
         RunConfig runConfig)
     {
@@ -119,10 +123,10 @@ internal static class ReplicaSmokeRunner
             RunId = "smoke",
             Client = "02",
             FiscalYear = 2020,
-            Department = "Handelsrecht",
-            AccountingLaw = "Handelsrecht",
-            ExportDefinition = "Zugangsliste",
-            DepartmentCode = "HR"
+            Department = department,
+            AccountingLaw = department,
+            ExportDefinition = exportDefinition,
+            DepartmentCode = department.StartsWith("Steuer", StringComparison.OrdinalIgnoreCase) ? "ST" : "HR"
         };
 
         Step("BeginJob");

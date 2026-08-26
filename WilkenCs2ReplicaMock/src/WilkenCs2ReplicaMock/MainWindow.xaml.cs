@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -896,6 +897,7 @@ public partial class MainWindow : Window
         };
 
         var context = new ContextMenu();
+        AutomationId(context, "Spool_ContextMenu");
         foreach (var h in new[] { "Listenanzeige", "Listendruck", "Ändern", "Druckauftrag löschen", "Auswahl", "Übersicht", "Drucker starten", "Drucker anhalten", "Format", "Filter", "Trenner-Position", "Suchen", "Drucken", "In Zwischenablage kopieren" })
             context.Items.Add(new MenuItem { Header = h });
         var export = new MenuItem { Header = "Export" }; AutomationId(export, "Spool_Context_Export");
@@ -907,9 +909,10 @@ public partial class MainWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
         var all = new Button { Content = "Alle auswählen", Width = 210, Margin = new Thickness(30, 14, 30, 8) }; AutomationId(all, "Spool_SelectAll");
         var none = new Button { Content = "Auswahl aufheben", Width = 210, Margin = new Thickness(30, 14, 30, 8) }; AutomationId(none, "Spool_ClearSelection");
-        // UIA-only path for Export → Erweitert. Near-invisible so the recorded spool chrome stays unchanged.
-        var openAdvanced = HiddenAutomationButton("Spool_OpenAdvancedExport", "Export → Erweitert", OpenAdvancedExport);
-        buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(openAdvanced); Grid.SetRow(buttons, 1); grid.Children.Add(buttons);
+        // Opens the real spool context menu (last item Export → last submenu Erweitert).
+        // Does not skip straight to Gitterbox — that is not the recorded Wilken path.
+        var openMenu = HiddenAutomationButton("Spool_OpenContextMenu", "Kontextmenü öffnen", OpenSpoolContextMenu);
+        buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(openMenu); Grid.SetRow(buttons, 1); grid.Children.Add(buttons);
         MainContent.Content = grid;
         _spoolGrid.Loaded += (_, _) => ScrollLatestSpoolRowIntoView();
         ScrollLatestSpoolRowIntoView();
@@ -945,6 +948,17 @@ public partial class MainWindow : Window
 
     private static void AddCol(DataGrid grid, string header, string path, double width) =>
         grid.Columns.Add(new DataGridTextColumn { Header = header, Binding = new Binding(path), Width = width });
+
+    private void OpenSpoolContextMenu()
+    {
+        if (_spoolGrid?.ContextMenu is null) return;
+        if (_spoolGrid.SelectedItem is null && _latestDataMeta is not null)
+            _spoolGrid.SelectedItem = _latestDataMeta;
+        var menu = _spoolGrid.ContextMenu;
+        menu.PlacementTarget = _spoolGrid;
+        menu.Placement = PlacementMode.Right;
+        menu.IsOpen = true;
+    }
 
     private void OpenAdvancedExport()
     {

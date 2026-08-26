@@ -110,3 +110,56 @@ public class ScreenStateEngineTests
         Assert.True(reached);
     }
 }
+
+public class Cs2ScreenUnwindTests
+{
+    [Fact]
+    public void ProcessManagerVisible_IsDone()
+    {
+        Assert.Equal(Cs2ScreenUnwind.Step.Done,
+            Cs2ScreenUnwind.Next(processManagerVisible: true, homeWorkspaceVisible: true,
+                childWindowOpen: true, internalCloseAvailable: true));
+    }
+
+    [Fact]
+    public void ChildWindow_UsesInternalClose_NeverNav()
+    {
+        Assert.Equal(Cs2ScreenUnwind.Step.CloseInternalWindow,
+            Cs2ScreenUnwind.Next(processManagerVisible: false, homeWorkspaceVisible: true,
+                childWindowOpen: true, internalCloseAvailable: true));
+    }
+
+    [Fact]
+    public void ChildWindowWithoutCloseButton_Waits()
+    {
+        Assert.Equal(Cs2ScreenUnwind.Step.WaitForUi,
+            Cs2ScreenUnwind.Next(processManagerVisible: false, homeWorkspaceVisible: true,
+                childWindowOpen: true, internalCloseAvailable: false));
+    }
+
+    [Fact]
+    public void RealHomeWorkspace_OpensProcessManagerFromNav()
+    {
+        Assert.Equal(Cs2ScreenUnwind.Step.OpenProcessManagerFromHome,
+            Cs2ScreenUnwind.Next(processManagerVisible: false, homeWorkspaceVisible: true,
+                childWindowOpen: false, internalCloseAvailable: false));
+    }
+
+    [Fact]
+    public void NavHomeAlone_IsNotHome_WaitsForInternalClose()
+    {
+        // Nav_Home always exists in the tree; that must not count as the home screen.
+        Assert.Equal(Cs2ScreenUnwind.Step.WaitForUi,
+            Cs2ScreenUnwind.Next(processManagerVisible: false, homeWorkspaceVisible: false,
+                childWindowOpen: false, internalCloseAvailable: false));
+    }
+
+    [Theory]
+    [InlineData("GITTERBOX_EXPORT", "SPOOL_LIST")]
+    [InlineData("SPOOL_LIST", "REPORT")]
+    [InlineData("REPORT", "PROCESS_MANAGER")]
+    public void Close_ExpectsTheScreenUnderneath(string from, string expected)
+    {
+        Assert.Equal(expected, Cs2ScreenUnwind.ExpectedAfterClose(from));
+    }
+}

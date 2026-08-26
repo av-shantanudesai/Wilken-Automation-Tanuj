@@ -1,6 +1,8 @@
 using System.Globalization;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Input;
+using FlaUI.Core.WindowsAPI;
 using WilkenAutomation.Application.Enums;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Models;
@@ -649,27 +651,225 @@ public partial class WindowsWilkenAutomationService
             : DateTime.MinValue;
     }
 
+    private static readonly TimeSpan FastUiPoll = TimeSpan.FromMilliseconds(80);
+
+    /// <summary>
+    /// Recorded Wilken path: context menu on the selected spool row → last item
+    /// (Export) → last submenu item (Erweitert) → System - Gitterbox-Export.
+    /// </summary>
+    private async Task ReplicaOpenGitterboxViaContextMenuAsync(CancellationToken ct)
+    {
+        GuardHealthy();
+        if (HasExactId("Export_Target_Excel") && HasExactId("Export_Records_All"))
+            return;
+
+        OpenSpoolContextMenu();
+        try
+        {
+            await WaitUntilUiAsync(
+                () => FindOpenContextMenuItems().Count > 0
+                      || HasExactId("Spool_Context_Export"),
+                TimeSpan.FromSeconds(5),
+                "spool context menu", ct, FastUiPoll, handleDialogs: false);
+
+            var topItems = FindOpenContextMenuItems();
+            var export = topItems.Count > 0
+                ? topItems[^1]
+                : TryFindByAutomationIdExact("Spool_Context_Export", false)
+                  ?? throw new WilkenAutomationException("CONTROL_NOT_FOUND",
+                      "Spool context menu did not expose Export as the last item.");
+
+            _logger.LogInformation("Spool context menu: last item '{Name}'.", SafeUiName(export));
+            ExpandOrInvokeMenuItem(export);
+
+            await WaitUntilUiAsync(
+                () => MenuItemChildren(export).Count > 0
+                      || HasExactId("Spool_Context_ExportAdvanced")
+                      || HasExactId("Export_Target_Excel"),
+                TimeSpan.FromSeconds(5),
+                "Export submenu", ct, FastUiPoll, handleDialogs: false);
+
+            if (!HasExactId("Export_Target_Excel"))
+            {
+                var sub = MenuItemChildren(export);
+                var advanced = sub.Count > 0
+                    ? sub[^1]
+                    : TryFindByAutomationIdExact("Spool_Context_ExportAdvanced", false)
+                      ?? throw new WilkenAutomationException("CONTROL_NOT_FOUND",
+                          "Export submenu did not expose Erweitert as the last item.");
+                _logger.LogInformation("Export submenu: last item '{Name}'.", SafeUiName(advanced));
+                InvokeControl(advanced);
+            }
+        }
+        catch (Exception ex) when (ex is WaitTimeoutException or WilkenAutomationException)
+        {
+            _logger.LogWarning(ex, "Context menu Export → Erweitert failed; retrying Shift+F10 then named Erweitert.");
+            SendShiftF10();
+            try
+            {
+                await WaitUntilUiAsync(
+                    () => FindOpenContextMenuItems().Count > 0 || HasExactId("Spool_Context_Export"),
+                    TimeSpan.FromSeconds(3),
+                    "context menu after Shift+F10", ct, FastUiPoll, handleDialogs: false);
+                var top = FindOpenContextMenuItems();
+                if (top.Count > 0)
+                {
+                    ExpandOrInvokeMenuItem(top[^1]);
+                    await Task.Delay(80, ct);
+                    var sub = MenuItemChildren(top[^1]);
+                    if (sub.Count > 0)
+                        InvokeControl(sub[^1]);
+                }
+                else
+                {
+                    var named = TryFindByAutomationIdExact("Spool_Context_ExportAdvanced", false)
+                                ?? TryFindByNameHint(Cs2ControlMap.Names["Spool_Context_ExportAdvanced"], false);
+                    if (named is not null)
+                        InvokeControl(named);
+                }
+            }
+            catch (Exception retryEx) when (retryEx is WaitTimeoutException or WilkenAutomationException)
+            {
+                throw new WilkenAutomationException("EXPORT_SCREEN_NOT_REACHED",
+                    "Could not open Gitterbox-Export via spool context menu last item → last submenu item.",
+                    inner: retryEx);
+            }
+        }
+
+        await WaitUntilUiAsync(
+            () => DetectActiveScreen() == "GITTERBOX_EXPORT",
+            TimeSpan.FromSeconds(Math.Max(8, _options.NavigationTimeoutSeconds)),
+            "System - Gitterbox-Export after Export → Erweitert",
+            ct, FastUiPoll, handleDialogs: false);
+    }
+
+    private void OpenSpoolContextMenu()
+    {
+        var opener = TryFindByAutomationIdExact("Spool_OpenContextMenu", false);
+        if (opener is not null)
+        {
+            InvokeControl(opener);
+            return;
+        }
+
+        SendShiftF10();
+    }
+
+    private void SendShiftF10()
+    {
+        WithoutStealingInput(() =>
+            Keyboard.TypeSimultaneously(VirtualKeyShort.SHIFT, VirtualKeyShort.F10));
+    }
+
+    private void ExpandOrInvokeMenuItem(AutomationElement item)
+    {
+        var expanded = false;
+        WithoutStealingInput(() =>
+        {
+            try
+            {
+                if (item.Patterns.ExpandCollapse.IsSupported)
+                {
+                    item.Patterns.ExpandCollapse.Pattern.Expand();
+                    expanded = true;
+                    return;
+                }
+            }
+            catch { }
+
+            try
+            {
+                item.AsMenuItem().Expand();
+                expanded = true;
+            }
+            catch { }
+        });
+
+        if (!expanded)
+        {
+            try { InvokeControl(item); }
+            catch (WilkenAutomationException) { }
+        }
+    }
+
+    private List<AutomationElement> FindOpenContextMenuItems()
+    {
+        foreach (var root in ContextMenuRoots())
+        {
+            try
+            {
+                var items = root.FindAllChildren(cf => cf.ByControlType(ControlType.MenuItem));
+                if (items.Length >= 2)
+                    return items.ToList();
+                var nested = root.FindFirstChild(cf => cf.ByControlType(ControlType.Menu))
+                             ?? root.FindFirstDescendant(cf => cf.ByControlType(ControlType.Menu));
+                if (nested is not null)
+                {
+                    items = nested.FindAllChildren(cf => cf.ByControlType(ControlType.MenuItem));
+                    if (items.Length >= 2)
+                        return items.ToList();
+                }
+            }
+            catch { }
+        }
+
+        var named = TryFindByAutomationIdExact("Spool_Context_Export", false);
+        if (named?.Parent is { } parent)
+        {
+            try
+            {
+                return parent.FindAllChildren(cf => cf.ByControlType(ControlType.MenuItem)).ToList();
+            }
+            catch { }
+        }
+
+        return new List<AutomationElement>();
+    }
+
+    private static List<AutomationElement> MenuItemChildren(AutomationElement parent)
+    {
+        try
+        {
+            return parent.FindAllChildren(cf => cf.ByControlType(ControlType.MenuItem)).ToList();
+        }
+        catch
+        {
+            return new List<AutomationElement>();
+        }
+    }
+
+    private IEnumerable<AutomationElement> ContextMenuRoots()
+    {
+        foreach (var root in SearchRoots())
+            yield return root;
+        if (_automation is null) yield break;
+        AutomationElement[] children;
+        try { children = _automation.GetDesktop().FindAllChildren(); }
+        catch { yield break; }
+        foreach (var child in children)
+        {
+            string cls;
+            ControlType type;
+            try
+            {
+                cls = child.ClassName ?? "";
+                type = child.ControlType;
+            }
+            catch { continue; }
+            if (type is ControlType.Menu or ControlType.ToolTip
+                || cls.Contains("Popup", StringComparison.OrdinalIgnoreCase)
+                || cls.Contains("Menu", StringComparison.OrdinalIgnoreCase)
+                || cls.Contains("32768"))
+                yield return child;
+        }
+    }
+
     private async Task<string> ReplicaExportAsync(ExportJob job, CancellationToken ct)
     {
         GuardHealthy();
         var before = SnapshotExportFiles();
 
-        await RunReplicaStepAsync(new AutomationStep
-        {
-            Name = "Export → Erweitert (open Gitterbox-Export)",
-            Action = () => InvokeControl(FindByAutomationId("Spool_OpenAdvancedExport")),
-            ExpectedState = () => ScreenEngine.Matches(GitterboxExportScreen),
-            Timeout = TimeSpan.FromSeconds(Math.Max(_options.NavigationTimeoutSeconds, 45)),
-            FailureErrorCode = "EXPORT_SCREEN_NOT_REACHED",
-            OnFailure = _ =>
-            {
-                var detected = ScreenEngine.Detect(new[] { SpoolListScreen, GitterboxExportScreen });
-                _logger.LogWarning(
-                    "Gitterbox-Export screen not reached. Currently detected screen: {Screen} (confidence {Confidence:P0}).",
-                    detected.Screen?.Name ?? "<unknown>", detected.Confidence);
-                return Task.CompletedTask;
-            }
-        }, ct);
+        await ReplicaOpenGitterboxViaContextMenuAsync(ct);
 
         var formatId = ReplicaFormatRadioId();
         SelectRadio(formatId);
@@ -718,7 +918,6 @@ public partial class WindowsWilkenAutomationService
 
         _logger.LogInformation("CS/2 export produced {Path} for {JobId}.", produced, job.JobId);
 
-        await Task.Delay(Math.Max(250, _options.PollingIntervalMs), ct);
         await ReplicaReturnToProcessManagerAsync(ct);
         return produced!;
     }
@@ -1144,12 +1343,21 @@ public partial class WindowsWilkenAutomationService
         });
     }
 
+    /// <summary>
+    /// Exact replica/UIA ids only. Do not use TryFindByAutomationId here: that
+    /// falls back to "any grid near the nav text Prozesse verwalten" and can
+    /// treat Spool_Grid as the process manager (CAD18 / missing ProcessRow).
+    /// </summary>
     private bool IsProcessManagerVisible() =>
-        TryFindByAutomationId("ProcessManager_Grid") is not null;
+        TryFindByAutomationIdExact("ProcessManager_Grid", enterGridRows: false) is not null
+        && TryFindByAutomationIdExact("ProcessManager_OpenSelected", enterGridRows: false) is not null;
 
+    /// <summary>
+    /// True only when the home work area is showing. Nav_Home is always in the
+    /// left tree and must not count as the home screen (that caused CAD18).
+    /// </summary>
     private bool IsHomeVisible() =>
-        TryFindByAutomationId("Home_Workspace") is not null
-        || TryFindByAutomationId("Nav_Home") is not null;
+        TryFindByAutomationIdExact("Home_Workspace", enterGridRows: false) is not null;
 
     private bool IsFunctionLockedVisible() =>
         TryFindByAutomationId("FunctionLockedDialog") is not null
@@ -1166,19 +1374,25 @@ public partial class WindowsWilkenAutomationService
         }
     }
 
-    private string DetectReplicaScreenName()
+    private string DetectReplicaScreenName() => DetectActiveScreen();
+
+    /// <summary>
+    /// Cheap screen id from exact AutomationIds only. Name/grid fallbacks are too
+    /// slow and can confuse spool with Prozesse verwalten.
+    /// </summary>
+    private string DetectActiveScreen()
     {
         if (IsProcessManagerVisible()) return "PROCESS_MANAGER";
-        // Prefer live export radios over leftover "Gitterbox-Export" status text.
-        if (TryFindByAutomationId("Export_Target_Excel") is not null
-            && TryFindByAutomationId("Export_Records_All") is not null)
+        if (HasExactId("Export_Target_Excel") && HasExactId("Export_Records_All"))
             return "GITTERBOX_EXPORT";
-        if (TryFindByAutomationId("Spool_Grid") is not null) return "SPOOL_LIST";
-        if (TryFindByAutomationId("Zugang_Prozess") is not null || TryFindByAutomationId("Anlage_Prozess") is not null)
-            return "REPORT";
+        if (HasExactId("Spool_Grid")) return "SPOOL_LIST";
+        if (HasExactId("Zugang_Prozess") || HasExactId("Anlage_Prozess")) return "REPORT";
         if (IsHomeVisible()) return "HOME";
         return "UNKNOWN";
     }
+
+    private bool HasExactId(string automationId) =>
+        TryFindByAutomationIdExact(automationId, enterGridRows: false) is not null;
 
     /// <summary>
     /// After a validated export, close one Wilken child window at a time with
@@ -1207,19 +1421,27 @@ public partial class WindowsWilkenAutomationService
             ThrowIfSessionLost();
             DismissFunctionLockedIfPresent();
 
-            if (IsProcessManagerVisible())
+            var childOpen = DetectActiveScreen() is "GITTERBOX_EXPORT" or "SPOOL_LIST" or "REPORT";
+            var close = TryFindByAutomationIdExact("InternalWindow_Close", enterGridRows: false);
+            var step = Cs2ScreenUnwind.Next(
+                processManagerVisible: IsProcessManagerVisible(),
+                homeWorkspaceVisible: IsHomeVisible(),
+                childWindowOpen: childOpen,
+                internalCloseAvailable: close is not null);
+
+            if (step == Cs2ScreenUnwind.Step.Done)
             {
                 _logger.LogInformation("Returned to Prozesse verwalten after {Closes} internal close(s).", closes);
                 return;
             }
 
-            if (IsHomeVisible())
+            if (step == Cs2ScreenUnwind.Step.OpenProcessManagerFromHome)
             {
                 await ActivateReplicaControlAsync("Nav_ProzesseVerwalten", ct);
                 await WaitUntilUiAsync(
                     () => IsProcessManagerVisible() || IsFunctionLockedVisible(),
                     TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-                    "Prozesse verwalten from home", ct);
+                    "Prozesse verwalten from home", ct, FastUiPoll, handleDialogs: false);
                 if (IsFunctionLockedVisible())
                 {
                     DismissFunctionLockedIfPresent();
@@ -1228,32 +1450,35 @@ public partial class WindowsWilkenAutomationService
                 return;
             }
 
-            if (closes >= maxCloses)
-                break;
-
-            var close = TryFindByAutomationId("InternalWindow_Close");
-            if (close is null)
+            if (step == Cs2ScreenUnwind.Step.WaitForUi || closes >= maxCloses)
             {
-                await Task.Delay(_options.PollingIntervalMs, ct);
+                if (closes >= maxCloses)
+                    break;
+                await Task.Delay(FastUiPoll, ct);
                 continue;
             }
 
-            var before = DetectReplicaScreenName();
-            _logger.LogInformation("InternalWindow_Close from {Screen}.", before);
-            InvokeControl(close);
+            var before = DetectActiveScreen();
+            var expected = Cs2ScreenUnwind.ExpectedAfterClose(before) ?? "PROCESS_MANAGER";
+            _logger.LogInformation("InternalWindow_Close from {Screen} → expect {Expected}.", before, expected);
+            InvokeControl(close!);
             closes++;
-            await Task.Delay(Math.Max(150, _options.PollingIntervalMs / 2), ct);
 
             try
             {
                 await WaitUntilUiAsync(
-                    () => IsProcessManagerVisible() || DetectReplicaScreenName() != before,
-                    TimeSpan.FromSeconds(12),
-                    $"screen change after InternalWindow_Close ({before})", ct);
+                    () =>
+                    {
+                        var now = DetectActiveScreen();
+                        return now == expected || now == "PROCESS_MANAGER" || (now != before && now != "UNKNOWN");
+                    },
+                    TimeSpan.FromSeconds(4),
+                    $"screen {expected} after InternalWindow_Close ({before})",
+                    ct, FastUiPoll, handleDialogs: false);
             }
             catch (WaitTimeoutException)
             {
-                _logger.LogWarning("InternalWindow_Close from {Screen} did not change the screen; retrying.", before);
+                _logger.LogWarning("InternalWindow_Close from {Screen} did not reach {Expected}; retrying.", before, expected);
             }
         }
 

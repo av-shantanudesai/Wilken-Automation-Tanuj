@@ -698,13 +698,15 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         catch { return ""; }
     }
 
-    private Task WaitUntilUiAsync(Func<bool> condition, TimeSpan timeout, string description, CancellationToken ct)
+    private Task WaitUntilUiAsync(Func<bool> condition, TimeSpan timeout, string description, CancellationToken ct,
+        TimeSpan? pollingInterval = null, bool handleDialogs = true)
         => WaitHelper.WaitUntilAsync(() =>
         {
             try
             {
                 ThrowIfSessionLost();
-                HandleDialogs();
+                if (handleDialogs)
+                    HandleDialogs();
                 return condition();
             }
             catch (WilkenAutomationException)
@@ -721,7 +723,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                     "Wilken UI became unavailable (window closed or process died).",
                     sessionLost: true, ex);
             }
-        }, timeout, TimeSpan.FromMilliseconds(_options.PollingIntervalMs), description, ct);
+        }, timeout, pollingInterval ?? TimeSpan.FromMilliseconds(_options.PollingIntervalMs), description, ct);
 
     private void ThrowIfSessionLost()
     {
