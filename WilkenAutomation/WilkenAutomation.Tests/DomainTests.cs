@@ -371,6 +371,18 @@ public class WilkenSelectorCatalogTests
     }
 
     [Fact]
+    public void Cs2Workflow_Includes_German_Date_And_Period_Fields()
+    {
+        Assert.Contains("DateFromField", WilkenSelectorCatalog.Cs2WorkflowSelectors);
+        Assert.Contains("DateToField", WilkenSelectorCatalog.Cs2WorkflowSelectors);
+        Assert.Contains("DepartmentField", WilkenSelectorCatalog.Cs2WorkflowSelectors);
+        Assert.Contains("PeriodFromMonthField", WilkenSelectorCatalog.Cs2WorkflowSelectors);
+        var missingCs2 = WilkenSelectorCatalog.MissingCs2(new Dictionary<string, string>());
+        Assert.Contains("DateFromField", missingCs2);
+        Assert.Contains("DateToField", missingCs2);
+    }
+
+    [Fact]
     public void RemoteDisplay_Detects_Citrix_And_Browser_Processes()
     {
         Assert.True(WilkenSessionPolicy.IsRemoteDisplayProcess("wfica32"));

@@ -2,7 +2,8 @@ namespace WilkenAutomation.Application.Services;
 
 /// <summary>
 /// Real Wilken can be WinForms, WPF, Win32, Java, or something else.
-/// Selectors are never assumed: inspect the live window, then map these keys.
+/// Selectors are never assumed: inspect the live German UI, then map these keys.
+/// Replica AutomationIds are not used on real Test Wilken.
 /// </summary>
 public static class WilkenSelectorCatalog
 {
@@ -19,10 +20,56 @@ public static class WilkenSelectorCatalog
         "ExportButton"
     ];
 
+    /// <summary>
+    /// Full CS/2 workflow keys. Fill from --inspect-watch --inspect-record on German Test Wilken.
+    /// </summary>
+    public static readonly string[] Cs2WorkflowSelectors =
+    [
+        "ProcessManagerNav",
+        "ProcessManagerGrid",
+        "ProcessManagerOpen",
+        "HomeNav",
+        "ListeAnzeigenOpen",
+        "DateFromField",
+        "DateToField",
+        "PeriodFromMonthField",
+        "PeriodFromYearField",
+        "PeriodToMonthField",
+        "PeriodToYearField",
+        "FiscalYearField",
+        "DepartmentField",
+        "SaveButton",
+        "ExecuteButton",
+        "ConfirmYes",
+        "ConfirmNo",
+        "ProgressDialog",
+        "FunctionLockedOk",
+        "ScreenTitle",
+        "StatusText",
+        "SpoolMenu",
+        "PrintSelectionStart",
+        "SpoolList",
+        "SpoolLatestRow",
+        "ExportButton",
+        "ExportTargetExcel",
+        "ExportRecordsAll",
+        "ExportFormatXlsx",
+        "ExportRun",
+        "InternalWindowClose"
+    ];
+
     public static IReadOnlyList<string> MissingRequired(IDictionary<string, string>? selectors)
     {
         selectors ??= new Dictionary<string, string>();
         return RequiredForAutomation
+            .Where(key => !selectors.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+            .ToArray();
+    }
+
+    public static IReadOnlyList<string> MissingCs2(IDictionary<string, string>? selectors)
+    {
+        selectors ??= new Dictionary<string, string>();
+        return Cs2WorkflowSelectors
             .Where(key => !selectors.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
             .ToArray();
     }
@@ -43,7 +90,7 @@ public static class WilkenSessionPolicy
     public const string AttachInstructions =
         "Open the Test Environment desktop from Citrix Workspace, log in to Wilken yourself, " +
         "and run the worker inside that same desktop (not on the PC that only has the browser). " +
-        "Then inspect the UI (dotnet run --project WilkenAutomation.Worker -- --inspect) " +
+        "Then inspect the UI (WilkenAutomation.Worker.exe --inspect-watch --inspect-record) " +
         "and map Wilken:Selectors before starting a run.";
 
     public static bool IsRemoteDisplayProcess(string? processName)

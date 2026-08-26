@@ -20,6 +20,9 @@ public class UserRepository : IUserRepository
     public Task<AppUser?> GetByEmailAsync(string email, CancellationToken ct) =>
         _db.AppUsers.FirstOrDefaultAsync(u => u.Email == email, ct);
 
+    public Task<AppUser?> GetFirstAsync(CancellationToken ct) =>
+        _db.AppUsers.OrderBy(u => u.Id).FirstOrDefaultAsync(ct);
+
     public async Task<AppUser> CreateAsync(AppUser user, CancellationToken ct)
     {
         _db.AppUsers.Add(user);

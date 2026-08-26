@@ -40,18 +40,18 @@ public static class UiaTreeDumper
         }
 
         sb.AppendLine();
-        sb.AppendLine("Next: open Wilken, log in, then dump a window:");
-        sb.AppendLine("  dotnet run --project WilkenAutomation.Worker -- --inspect \"<Title from the list>\"");
+        sb.AppendLine("Next: dump one window, all windows, or watch while you click:");
+        sb.AppendLine("  WilkenAutomation.Worker.exe --inspect \"<Title from the list>\"");
+        sb.AppendLine("  WilkenAutomation.Worker.exe --inspect --all");
+        sb.AppendLine("  WilkenAutomation.Worker.exe --inspect-watch --inspect-record");
         return sb.ToString();
     }
 
-    public static string DumpWindowByTitle(string titleContains, int maxDepth = 10)
+    public static string DumpWindowByTitle(string titleContains, int maxDepth = 16)
     {
         using var automation = new UIA3Automation();
-        var desktop = automation.GetDesktop();
-        var matches = desktop.FindAllChildren()
-            .Where(w => (w.Properties.Name.ValueOrDefault ?? "")
-                .Contains(titleContains, StringComparison.OrdinalIgnoreCase))
+        var matches = GetTopLevelWindows(automation)
+            .Where(w => w.Title.Contains(titleContains, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (matches.Count == 0)
@@ -66,42 +66,116 @@ public static class UiaTreeDumper
         sb.AppendLine(new string('-', 100));
 
         foreach (var window in matches)
-        {
-            var pid = window.Properties.ProcessId.ValueOrDefault;
-            var processName = TryProcessName(pid);
-            var cls = window.Properties.ClassName.ValueOrDefault ?? "";
-            var framework = window.Properties.FrameworkId.ValueOrDefault ?? "";
-            var children = SafeChildCount(window);
-
-            sb.AppendLine();
-            sb.AppendLine($"WINDOW Title='{window.Properties.Name.ValueOrDefault}' PID={pid} Process='{processName}'");
-            sb.AppendLine($"  Framework='{framework}' Class='{cls}' DirectChildren={children}");
-            sb.AppendLine(Classify(processName, cls, framework, children).TrimStart());
-
-            if (WilkenSessionPolicy.IsRemoteDisplayProcess(processName))
-            {
-                sb.AppendLine("  BLOCKED: this is a Citrix/browser remote-display window (pixels only).");
-                sb.AppendLine("  Run --inspect inside the published Test Environment desktop after login.");
-                continue;
-            }
-
-            if (WilkenSessionPolicy.IsLikelyJavaWindow(cls, framework) && children < 3)
-            {
-                sb.AppendLine("  JAVA: control tree is almost empty. Enable Java Access Bridge in this session:");
-                sb.AppendLine("    jabswitch -enable");
-                sb.AppendLine("  Restart Wilken, then run --inspect again.");
-            }
-            else if (children < 3 && !string.Equals(framework, "WPF", StringComparison.OrdinalIgnoreCase)
-                     && !string.Equals(framework, "WinForm", StringComparison.OrdinalIgnoreCase))
-            {
-                sb.AppendLine("  SPARSE TREE: UIA sees almost no controls. Confirm the worker is in the same");
-                sb.AppendLine("  interactive session as Wilken (not Session 0 / Windows Service, not the Citrix client PC).");
-            }
-
-            Dump(window, sb, 0, maxDepth);
-        }
+            sb.Append(DumpWindow(window, maxDepth));
 
         return sb.ToString();
+    }
+
+    public static string DumpAllInterestingWindows(int maxDepth = 16)
+    {
+        using var automation = new UIA3Automation();
+        var windows = GetTopLevelWindows(automation)
+            .Where(w => !w.IsRemoteDisplay)
+            .ToList();
+        var sb = new StringBuilder();
+        sb.AppendLine($"UIA dump of {windows.Count} non-Citrix top-level window(s).");
+        sb.AppendLine($"Captured: {DateTime.Now:O}");
+        sb.AppendLine(new string('-', 100));
+        foreach (var window in windows)
+            sb.Append(DumpWindow(window, maxDepth));
+        return sb.ToString();
+    }
+
+    public static List<TopLevelWindow> GetTopLevelWindows(UIA3Automation automation, bool includeUntitled = false)
+    {
+        var list = new List<TopLevelWindow>();
+        foreach (var element in automation.GetDesktop().FindAllChildren())
+        {
+            var title = element.Properties.Name.ValueOrDefault ?? "";
+            if (string.IsNullOrWhiteSpace(title) && !includeUntitled) continue;
+            var pid = element.Properties.ProcessId.ValueOrDefault;
+            var processName = TryProcessName(pid);
+            var cls = element.Properties.ClassName.ValueOrDefault ?? "";
+            var framework = element.Properties.FrameworkId.ValueOrDefault ?? "";
+            if (string.IsNullOrWhiteSpace(title))
+                title = $"(untitled) {processName} {pid}";
+            list.Add(new TopLevelWindow(
+                element, title, pid, processName, cls, framework,
+                SafeChildCount(element),
+                WilkenSessionPolicy.IsRemoteDisplayProcess(processName)));
+        }
+        return list;
+    }
+
+    public static string DumpWindow(TopLevelWindow window, int maxDepth = 16)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine($"WINDOW Title='{window.Title}' PID={window.Pid} Process='{window.ProcessName}'");
+        sb.AppendLine($"  Framework='{window.Framework}' Class='{window.ClassName}' DirectChildren={window.ChildCount}");
+        sb.AppendLine(Classify(window.ProcessName, window.ClassName, window.Framework, window.ChildCount).TrimStart());
+
+        if (window.IsRemoteDisplay)
+        {
+            sb.AppendLine("  BLOCKED: this is a Citrix/browser remote-display window (pixels only).");
+            sb.AppendLine("  Run inspect inside the published Test Environment desktop after login.");
+            return sb.ToString();
+        }
+
+        if (WilkenSessionPolicy.IsLikelyJavaWindow(window.ClassName, window.Framework) && window.ChildCount < 3)
+        {
+            sb.AppendLine("  JAVA: control tree is almost empty. Enable Java Access Bridge in this session:");
+            sb.AppendLine("    jabswitch -enable");
+            sb.AppendLine("  Restart Wilken, then inspect again.");
+        }
+        else if (window.ChildCount < 3
+                 && !string.Equals(window.Framework, "WPF", StringComparison.OrdinalIgnoreCase)
+                 && !string.Equals(window.Framework, "WinForm", StringComparison.OrdinalIgnoreCase))
+        {
+            sb.AppendLine("  SPARSE TREE: UIA sees almost no controls. Confirm the worker is in the same");
+            sb.AppendLine("  interactive session as Wilken (not Session 0 / Windows Service, not the Citrix client PC).");
+        }
+
+        Dump(window.Element, sb, 0, maxDepth);
+        return sb.ToString();
+    }
+
+    public static string WindowFingerprint(TopLevelWindow window)
+    {
+        var sb = new StringBuilder();
+        sb.Append(window.Title).Append('|').Append(window.ProcessName).Append('|').Append(window.ChildCount);
+        CollectFingerprint(window.Element, sb, 0, 10);
+        return sb.ToString();
+    }
+
+    public static string PublicSuggestSelector(
+        string? automationId, string? name, string? className, string? helpText = null, string? legacyName = null) =>
+        SuggestSelector(automationId, name, className, helpText, legacyName);
+
+    public readonly record struct TopLevelWindow(
+        AutomationElement Element,
+        string Title,
+        int Pid,
+        string ProcessName,
+        string ClassName,
+        string Framework,
+        int ChildCount,
+        bool IsRemoteDisplay);
+
+    private static void CollectFingerprint(AutomationElement element, StringBuilder sb, int depth, int maxDepth)
+    {
+        if (depth > maxDepth) return;
+        try
+        {
+            var id = element.Properties.AutomationId.ValueOrDefault ?? "";
+            var name = element.Properties.Name.ValueOrDefault ?? "";
+            var type = element.Properties.ControlType.ValueOrDefault.ToString();
+            if (!string.IsNullOrWhiteSpace(id) || (!string.IsNullOrWhiteSpace(name) && name.Length <= 80))
+                sb.Append('|').Append(type).Append(':').Append(id).Append(':').Append(Trunc(name, 40));
+            foreach (var child in element.FindAllChildren())
+                CollectFingerprint(child, sb, depth + 1, maxDepth);
+        }
+        catch { }
     }
 
     private static void Dump(AutomationElement element, StringBuilder sb, int depth, int maxDepth)
@@ -111,11 +185,31 @@ public static class UiaTreeDumper
         var indent = new string(' ', depth * 2);
         var p = element.Properties;
         var patterns = DescribePatterns(element);
-        var suggested = SuggestSelector(p.AutomationId.ValueOrDefault, p.Name.ValueOrDefault, p.ClassName.ValueOrDefault);
+        string? help = null;
+        string? value = null;
+        string? legacy = null;
+        try { help = p.HelpText.ValueOrDefault; } catch { }
+        try
+        {
+            if (element.Patterns.Value.IsSupported)
+                value = element.Patterns.Value.Pattern.Value.ValueOrDefault;
+        }
+        catch { }
+        try
+        {
+            if (element.Patterns.LegacyIAccessible.IsSupported)
+                legacy = element.Patterns.LegacyIAccessible.Pattern.Name;
+        }
+        catch { }
+
+        var suggested = SuggestSelector(p.AutomationId.ValueOrDefault, p.Name.ValueOrDefault, p.ClassName.ValueOrDefault, help, legacy);
         sb.AppendLine(
             $"{indent}[{p.ControlType.ValueOrDefault}] " +
             $"AutomationId='{p.AutomationId.ValueOrDefault}' " +
-            $"Name='{Trunc(p.Name.ValueOrDefault, 60)}' " +
+            $"Name='{Trunc(p.Name.ValueOrDefault, 80)}' " +
+            $"Help='{Trunc(help, 60)}' " +
+            $"Legacy='{Trunc(legacy, 60)}' " +
+            $"Value='{Trunc(value, 40)}' " +
             $"Class='{p.ClassName.ValueOrDefault}' " +
             $"Framework='{p.FrameworkId.ValueOrDefault}' " +
             $"Handle=0x{p.NativeWindowHandle.ValueOrDefault:X} " +
@@ -128,12 +222,17 @@ public static class UiaTreeDumper
             Dump(child, sb, depth + 1, maxDepth);
     }
 
-    private static string SuggestSelector(string? automationId, string? name, string? className)
+    private static string SuggestSelector(
+        string? automationId, string? name, string? className, string? helpText = null, string? legacyName = null)
     {
         if (!string.IsNullOrWhiteSpace(automationId))
             return $"AutomationId:{automationId}";
         if (!string.IsNullOrWhiteSpace(name) && name.Length <= 80)
             return $"Name:{name}";
+        if (!string.IsNullOrWhiteSpace(legacyName) && legacyName.Length <= 80)
+            return $"Name:{legacyName}";
+        if (!string.IsNullOrWhiteSpace(helpText) && helpText.Length <= 80)
+            return $"HelpTextContains:{helpText}";
         if (!string.IsNullOrWhiteSpace(className) && !className.StartsWith("Hwnd", StringComparison.OrdinalIgnoreCase))
             return $"ClassName:{className}";
         return "";
@@ -144,6 +243,8 @@ public static class UiaTreeDumper
         var names = new List<string>();
         try { if (element.Patterns.Invoke.IsSupported) names.Add("Invoke"); } catch { }
         try { if (element.Patterns.Value.IsSupported) names.Add("Value"); } catch { }
+        try { if (element.Patterns.Toggle.IsSupported) names.Add("Toggle"); } catch { }
+        try { if (element.Patterns.SelectionItem.IsSupported) names.Add("SelectionItem"); } catch { }
         try { if (element.Patterns.Selection.IsSupported) names.Add("Selection"); } catch { }
         try { if (element.Patterns.ExpandCollapse.IsSupported) names.Add("ExpandCollapse"); } catch { }
         try { if (element.Patterns.LegacyIAccessible.IsSupported) names.Add("LegacyIAccessible"); } catch { }

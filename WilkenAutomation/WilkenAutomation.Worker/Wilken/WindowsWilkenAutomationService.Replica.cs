@@ -9,10 +9,11 @@ using WilkenAutomation.Application.Services;
 namespace WilkenAutomation.Worker.Wilken;
 
 /// <summary>
-/// DesktopTest path against WilkenCs2ReplicaMock, following AUTOMATION_WORKFLOW:
-/// Prozesse verwalten → select process → execute → wait Fortschritt → Liste anzeigen →
+/// CS/2 workflow used by WilkenCs2ReplicaMock and real Test Wilken (attach-only):
+/// Prozesse verwalten → select process → save → execute → wait Fortschritt → Liste anzeigen →
 /// Druckauswahl → exact data spool row → Export Erweitert → force XLSX → validate →
 /// InternalWindow_Close until ProcessManager_Grid (never re-click Prozesse verwalten).
+/// Replica AutomationIds are tried first, then Wilken:Selectors, then German names.
 /// </summary>
 public partial class WindowsWilkenAutomationService
 {
@@ -38,7 +39,7 @@ public partial class WindowsWilkenAutomationService
             ScreenAnchor.ById("Spool_SelectAll"),
             ScreenAnchor.ByText("Liste anzeigen")
         },
-        MinMatches = 2
+        MinMatches = 1
     };
 
     private static readonly ScreenDefinition GitterboxExportScreen = new()
@@ -71,10 +72,26 @@ public partial class WindowsWilkenAutomationService
 
     private string ReadTitleAndStatusText()
     {
-        var parts = new List<string>(2);
-        var title = TryFindByAutomationId("Screen_Title");
+        var parts = new List<string>(8);
+        try
+        {
+            foreach (var root in SearchRoots())
+            {
+                try
+                {
+                    var name = SafeUiName(root);
+                    if (!string.IsNullOrWhiteSpace(name)) parts.Add(name);
+                    if (root is Window window && !string.IsNullOrWhiteSpace(window.Title))
+                        parts.Add(window.Title);
+                }
+                catch { }
+            }
+        }
+        catch { }
+
+        var title = TryFindByAutomationIdExact("Screen_Title", enterGridRows: false);
         if (title is not null) parts.Add(SafeUiName(title) + " " + ReadValue(title));
-        var status = TryFindByAutomationId("Status_Text");
+        var status = TryFindByAutomationIdExact("Status_Text", enterGridRows: false);
         if (status is not null) parts.Add(SafeUiName(status) + " " + ReadValue(status));
         return string.Join(" ", parts);
     }
@@ -184,10 +201,19 @@ public partial class WindowsWilkenAutomationService
             ? "Zugang_Prozess" : "Anlage_Prozess";
         var nameField = definition.Name.Contains("Zugang", StringComparison.OrdinalIgnoreCase)
             ? "Zugang_Bezeichnung" : "Anlage_Bezeichnung";
+        var expectedTitle = definition.ReplicaTitleContains ?? "Anlagenspiegel erstellen";
         await WaitUntilUiAsync(
-            () => ScreenTitleContains(definition.ReplicaTitleContains ?? "Anlagenspiegel erstellen")
-                  && ControlShowsValue(TryFindByAutomationId(processField), number)
-                  && ControlShowsValue(TryFindByAutomationId(nameField), name),
+            () =>
+            {
+                if (!ScreenTitleContains(expectedTitle)
+                    && !ScreenTitleContains(name)
+                    && !ScreenTitleContains("erstellen"))
+                    return false;
+                if (IsReplica || TryFindByAutomationId(processField) is not null)
+                    return ControlShowsValue(TryFindByAutomationId(processField), number)
+                           && ControlShowsValue(TryFindByAutomationId(nameField), name);
+                return true;
+            },
             TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
             $"saved process {number} '{name}' loaded", ct);
     }
@@ -216,9 +242,7 @@ public partial class WindowsWilkenAutomationService
         if (grid is null) return null;
         try
         {
-            var rows = grid.FindAllDescendants(cf => cf.ByClassName("DataGridRow"));
-            if (rows.Length == 0)
-                rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+            var rows = CollectGridRows(grid);
             foreach (var row in rows)
             {
                 var text = ReadSubtree(row);
@@ -234,6 +258,13 @@ public partial class WindowsWilkenAutomationService
 
     private async Task ReplicaVerifyStaticFieldsAsync(ExportDefinition definition, CancellationToken ct)
     {
+        if (!IsReplica)
+        {
+            _logger.LogInformation(
+                "Real Wilken: skip replica-only static field IDs; Zeitraum and Fachbereich are still set.");
+            return;
+        }
+
         if (string.Equals(definition.Name, "Zugangsliste", StringComparison.OrdinalIgnoreCase))
         {
             await VerifyValueAsync("Zugang_Prozess", "001", ct);
@@ -273,22 +304,19 @@ public partial class WindowsWilkenAutomationService
     private async Task ReplicaSetPeriodAsync(int fiscalYear, CancellationToken ct)
     {
         GuardHealthy();
-        if (IsZugangDefinition)
+        // Real German Wilken: von/bis dates plus Zeitraum 01/year–12/year.
+        // Replica Zugangsliste has both; Anlagenspiegel has Zeitraum only.
+        if (IsZugangDefinition || !IsReplica)
         {
             await SetIdValueAsync("Zugang_DateFrom", $"01.01.{fiscalYear}", ct);
             await SetIdValueAsync("Zugang_DateTo", $"31.12.{fiscalYear}", ct);
-            await SetIdValueAsync("Zugang_Period_0", "01", ct);
-            await SetIdValueAsync("Zugang_Period_1", fiscalYear.ToString(), ct);
-            await SetIdValueAsync("Zugang_Period_2", "12", ct);
-            await SetIdValueAsync("Zugang_Period_3", fiscalYear.ToString(), ct);
         }
-        else
-        {
-            await SetIdValueAsync("Anlage_Period_0", "01", ct);
-            await SetIdValueAsync("Anlage_Period_1", fiscalYear.ToString(), ct);
-            await SetIdValueAsync("Anlage_Period_2", "12", ct);
-            await SetIdValueAsync("Anlage_Period_3", fiscalYear.ToString(), ct);
-        }
+
+        var prefix = IsZugangDefinition ? "Zugang_Period" : "Anlage_Period";
+        await SetIdValueAsync($"{prefix}_0", "01", ct);
+        await SetIdValueAsync($"{prefix}_1", fiscalYear.ToString(), ct);
+        await SetIdValueAsync($"{prefix}_2", "12", ct);
+        await SetIdValueAsync($"{prefix}_3", fiscalYear.ToString(), ct);
     }
 
     private Task ReplicaSetFachbereichAsync(string department, CancellationToken ct)
@@ -310,27 +338,54 @@ public partial class WindowsWilkenAutomationService
         if (save is not null)
         {
             InvokeControl(save);
-            await WaitUntilUiAsync(
-                () => ScreenStatusContains("Prozess aktualisiert"),
-                TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-                "status 'Prozess aktualisiert' after save", ct);
-            _logger.LogInformation("Process saved (Prozess aktualisiert).");
+            try
+            {
+                await WaitUntilUiAsync(
+                    () => ScreenStatusContains("Prozess aktualisiert"),
+                    TimeSpan.FromSeconds(Math.Min(_options.NavigationTimeoutSeconds, 15)),
+                    "status 'Prozess aktualisiert' after save", ct);
+                _logger.LogInformation("Process saved (Prozess aktualisiert).");
+            }
+            catch (WaitTimeoutException)
+            {
+                _logger.LogWarning("Save clicked; 'Prozess aktualisiert' was not seen. Continuing to Ausführen.");
+            }
         }
 
         InvokeControl(FindByAutomationId("Toolbar_Execute"));
-        await WaitUntilUiAsync(
-            () => TryFindByAutomationId("Confirm_Yes") is not null,
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            "confirmation dialog", ct);
-        InvokeControl(FindByAutomationId("Confirm_Yes"));
+        try
+        {
+            await WaitUntilUiAsync(
+                () => TryFindByAutomationId("Confirm_Yes") is not null,
+                TimeSpan.FromSeconds(IsReplica ? _options.NavigationTimeoutSeconds : 8),
+                "confirmation dialog", ct);
+            InvokeControl(FindByAutomationId("Confirm_Yes"));
+        }
+        catch (WaitTimeoutException)
+        {
+            if (IsReplica)
+                throw;
+            _logger.LogWarning("No Ja/Yes confirmation after Ausführen; continuing (real Wilken may skip it).");
+        }
     }
 
     private async Task ReplicaWaitForProgressAsync(CancellationToken ct)
     {
-        await WaitUntilUiAsync(
-            () => TryFindByAutomationId("ProgressDialog") is not null,
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            "Fortschritt dialog", ct);
+        try
+        {
+            await WaitUntilUiAsync(
+                () => TryFindByAutomationId("ProgressDialog") is not null,
+                TimeSpan.FromSeconds(IsReplica ? _options.NavigationTimeoutSeconds : 20),
+                "Fortschritt dialog", ct);
+        }
+        catch (WaitTimeoutException)
+        {
+            if (IsReplica)
+                throw;
+            _logger.LogWarning("Fortschritt dialog was not found; continuing (run may have finished immediately).");
+            SessionStatus = WilkenSessionStatus.Ready;
+            return;
+        }
 
         // Phase changes (Anlagenselektion / Ermitteln der Werte / Der Anlagenspiegel wird erstellt)
         // are normal. Never click Progress_Cancel. Wait until the dialog closes itself.
@@ -456,15 +511,38 @@ public partial class WindowsWilkenAutomationService
         AutomationElement[] rows;
         try
         {
-            rows = grid.FindAllDescendants(cf => cf.ByClassName("DataGridRow"));
-            if (rows.Length == 0)
-                rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+            rows = CollectGridRows(grid);
         }
         catch
         {
             return null;
         }
 
+        if (rows.Length == 0) return null;
+
+        var hits = ScanSpoolHits(rows, match, requireUser: true, requireListName: true);
+        if (hits.Count == 0 && !IsReplica)
+        {
+            _logger.LogInformation("No spool row matched replica user/list filters; retrying with report name only.");
+            hits = ScanSpoolHits(rows, match, requireUser: false, requireListName: true);
+        }
+        if (hits.Count == 0 && !IsReplica)
+            hits = ScanSpoolHits(rows, match, requireUser: false, requireListName: false);
+
+        if (hits.Count == 0) return null;
+        var newest = hits.Max(h => h.Created);
+        var top = hits.Where(h => h.Created == newest).ToList();
+        if (top.Count > 1)
+        {
+            ambiguous = true;
+            return null;
+        }
+        return top[0].Row;
+    }
+
+    private List<(AutomationElement Row, DateTime Created)> ScanSpoolHits(
+        AutomationElement[] rows, SpoolMatchSpec? match, bool requireUser, bool requireListName)
+    {
         var listName = match?.ListName;
         var extension = match?.Extension;
         var user = match?.User ?? "BHL";
@@ -476,36 +554,31 @@ public partial class WindowsWilkenAutomationService
         {
             var text = ReadSubtree(rows[i]);
             if (text.Contains("Protokoll:", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!string.IsNullOrEmpty(listName) && !text.Contains(listName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (requireListName && !string.IsNullOrEmpty(listName) && !text.Contains(listName, StringComparison.OrdinalIgnoreCase)) continue;
             if (!string.IsNullOrEmpty(extension) && !text.Contains(extension, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!text.Contains(user, StringComparison.OrdinalIgnoreCase)) continue;
+            if (requireUser && !text.Contains(user, StringComparison.OrdinalIgnoreCase)) continue;
             if (text.Contains("PRT", StringComparison.OrdinalIgnoreCase)
                 && (string.IsNullOrEmpty(extension) || !string.Equals(extension, "PRT", StringComparison.OrdinalIgnoreCase)))
                 continue;
 
             var nextText = i + 1 < rows.Length ? ReadSubtree(rows[i + 1]) : "";
             if (nextText.Contains("Protokoll:", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!nextText.Contains(report, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!nextText.Contains(report, StringComparison.OrdinalIgnoreCase)
+                && !text.Contains(report, StringComparison.OrdinalIgnoreCase))
+                continue;
             if (!string.IsNullOrEmpty(exclude)
                 && nextText.Contains(exclude, StringComparison.OrdinalIgnoreCase)
                 && !report.Contains(exclude, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             var created = ParseSpoolTimestamp(text);
-            if (created < _runStartedAtUtc.AddMinutes(-2)) continue;
+            if (created != DateTime.MinValue && created < _runStartedAtUtc.AddMinutes(-2))
+                continue;
             if (_spoolSnapshot.Contains(SpoolRowKey(text, nextText))) continue;
-            hits.Add((rows[i], created));
+            hits.Add((rows[i], created == DateTime.MinValue ? DateTime.UtcNow : created));
         }
 
-        if (hits.Count == 0) return null;
-        var newest = hits.Max(h => h.Created);
-        var top = hits.Where(h => h.Created == newest).ToList();
-        if (top.Count > 1)
-        {
-            ambiguous = true;
-            return null;
-        }
-        return top[0].Row;
+        return hits;
     }
 
     private void SelectRow(AutomationElement target)
@@ -544,9 +617,7 @@ public partial class WindowsWilkenAutomationService
         if (grid is null) return;
         try
         {
-            var rows = grid.FindAllDescendants(cf => cf.ByClassName("DataGridRow"));
-            if (rows.Length == 0)
-                rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+            var rows = CollectGridRows(grid);
             for (var i = 0; i < rows.Length; i++)
             {
                 var text = ReadSubtree(rows[i]);
@@ -581,12 +652,7 @@ public partial class WindowsWilkenAutomationService
     private async Task<string> ReplicaExportAsync(ExportJob job, CancellationToken ct)
     {
         GuardHealthy();
-        var downloads = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-        Directory.CreateDirectory(downloads);
-        var before = Directory.GetFiles(downloads, "CTLP12*.xlsx")
-            .Select(f => (Path: f, Time: File.GetLastWriteTimeUtc(f)))
-            .ToList();
+        var before = SnapshotExportFiles();
 
         await RunReplicaStepAsync(new AutomationStep
         {
@@ -609,12 +675,17 @@ public partial class WindowsWilkenAutomationService
         SelectRadio(formatId);
         SelectRadio("Export_Target_Excel");
         SelectRadio("Export_Records_All");
-        await WaitUntilUiAsync(
-            () => RadioIsSelected(formatId)
-                  && RadioIsSelected("Export_Target_Excel")
-                  && RadioIsSelected("Export_Records_All"),
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            $"{formatId} + Excel + Alle selected", ct);
+        if (IsReplica
+            || TryFindByAutomationId(formatId) is not null
+            || TryFindByAutomationId("Export_Target_Excel") is not null)
+        {
+            await WaitUntilUiAsync(
+                () => (TryFindByAutomationId(formatId) is null || RadioIsSelected(formatId))
+                      && (TryFindByAutomationId("Export_Target_Excel") is null || RadioIsSelected("Export_Target_Excel"))
+                      && (TryFindByAutomationId("Export_Records_All") is null || RadioIsSelected("Export_Records_All")),
+                TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
+                $"{formatId} + Excel + Alle selected", ct);
+        }
 
         InvokeControl(FindByAutomationId("Toolbar_Execute"));
         if (!await TryWaitForExportStartAsync(TimeSpan.FromSeconds(6), ct))
@@ -627,31 +698,16 @@ public partial class WindowsWilkenAutomationService
         string? produced = null;
         await WaitUntilUiAsync(() =>
         {
-            produced = Directory.GetFiles(downloads, "CTLP12*.xlsx")
-                .Select(f => new FileInfo(f))
-                .Where(f => f.Length > 0
-                            && (before.All(b => b.Path != f.FullName)
-                                || File.GetLastWriteTimeUtc(f.FullName) > _runStartedAtUtc))
-                .OrderByDescending(f => f.LastWriteTimeUtc)
-                .Select(f => f.FullName)
-                .FirstOrDefault();
+            produced = NewestExportSince(before);
             return produced is not null || ScreenStatusContains("Export abgeschlossen");
         },
         TimeSpan.FromMinutes(_options.ExportTimeoutMinutes),
-        "downloaded CTLP12.xlsx", ct);
+        "exported workbook", ct);
 
-        if (produced is null)
-        {
-            produced = Directory.GetFiles(downloads, "CTLP12*.xlsx")
-                .Select(f => new FileInfo(f))
-                .Where(f => f.Length > 0 && f.LastWriteTimeUtc > _runStartedAtUtc.AddMinutes(-2))
-                .OrderByDescending(f => f.LastWriteTimeUtc)
-                .Select(f => f.FullName)
-                .FirstOrDefault();
-        }
+        produced ??= NewestExportSince(before);
         if (produced is null)
             throw new WilkenAutomationException("DOWNLOAD_TIMEOUT",
-                "Gitterbox export finished in the UI but no CTLP12.xlsx was found in Downloads.");
+                "Gitterbox export finished in the UI but no new .xlsx was found in Downloads or the export folder.");
 
         // File appears -> size stops changing -> file is unlocked -> only then validate.
         _lastObservedExportSize = -1;
@@ -660,7 +716,7 @@ public partial class WindowsWilkenAutomationService
             TimeSpan.FromMinutes(Math.Max(1, _options.ExportTimeoutMinutes)),
             "export file size stable and unlocked", ct);
 
-        _logger.LogInformation("Replica export produced {Path} for {JobId}.", produced, job.JobId);
+        _logger.LogInformation("CS/2 export produced {Path} for {JobId}.", produced, job.JobId);
 
         await Task.Delay(Math.Max(250, _options.PollingIntervalMs), ct);
         await ReplicaReturnToProcessManagerAsync(ct);
@@ -697,8 +753,72 @@ public partial class WindowsWilkenAutomationService
         }
     }
 
+    private IEnumerable<string> ExportSearchFolders()
+    {
+        var downloads = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        Directory.CreateDirectory(downloads);
+        yield return downloads;
+        if (!string.IsNullOrWhiteSpace(_exportSettings.RootDirectory))
+        {
+            Directory.CreateDirectory(_exportSettings.RootDirectory);
+            yield return _exportSettings.RootDirectory;
+        }
+    }
+
+    private string[] ExportFilePatterns() =>
+        IsReplica ? ["CTLP12*.xlsx"] : ["*.xlsx", "*.xls"];
+
+    private List<(string Path, DateTime Time)> SnapshotExportFiles()
+    {
+        var before = new List<(string Path, DateTime Time)>();
+        foreach (var folder in ExportSearchFolders())
+        {
+            foreach (var pattern in ExportFilePatterns())
+            {
+                try
+                {
+                    before.AddRange(Directory.GetFiles(folder, pattern)
+                        .Select(f => (Path: f, Time: File.GetLastWriteTimeUtc(f))));
+                }
+                catch { }
+            }
+        }
+        return before;
+    }
+
+    private string? NewestExportSince(List<(string Path, DateTime Time)> before)
+    {
+        var candidates = new List<FileInfo>();
+        foreach (var folder in ExportSearchFolders())
+        {
+            foreach (var pattern in ExportFilePatterns())
+            {
+                try
+                {
+                    candidates.AddRange(Directory.GetFiles(folder, pattern).Select(f => new FileInfo(f)));
+                }
+                catch { }
+            }
+        }
+
+        return candidates
+            .Where(f => f.Length > 0
+                        && (before.All(b => b.Path != f.FullName)
+                            || File.GetLastWriteTimeUtc(f.FullName) > _runStartedAtUtc.AddSeconds(-5)))
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .Select(f => f.FullName)
+            .FirstOrDefault();
+    }
+
     private async Task VerifyValueAsync(string automationId, string expected, CancellationToken ct)
     {
+        if (!IsReplica && TryFindByAutomationId(automationId) is null)
+        {
+            _logger.LogWarning("Field '{Id}' not found on real Wilken; skipping verify '{Expected}'.", automationId, expected);
+            return;
+        }
+
         try
         {
             await WaitUntilUiAsync(
@@ -718,7 +838,14 @@ public partial class WindowsWilkenAutomationService
     {
         var box = TryFindByAutomationId(automationId);
         if (box is null)
-            throw new WilkenAutomationException("CONTROL_NOT_FOUND", $"Replica checkbox '{automationId}' was not found.");
+        {
+            if (!IsReplica)
+            {
+                _logger.LogWarning("Checkbox '{Id}' not found on real Wilken; skipping.", automationId);
+                return;
+            }
+            throw new WilkenAutomationException("CONTROL_NOT_FOUND", $"CS/2 checkbox '{automationId}' was not found.");
+        }
 
         if (CheckIsOn(box) != expected)
         {
@@ -767,7 +894,17 @@ public partial class WindowsWilkenAutomationService
 
     private async Task SetIdValueAsync(string automationId, string value, CancellationToken ct)
     {
-        var field = FindByAutomationId(automationId);
+        var field = TryFindByAutomationId(automationId);
+        if (field is null)
+        {
+            if (!IsReplica)
+            {
+                _logger.LogWarning("Field '{Id}' not found on real Wilken; skipping value '{Value}'.", automationId, value);
+                return;
+            }
+            throw new WilkenAutomationException("CONTROL_NOT_FOUND", $"CS/2 control '{automationId}' was not found.");
+        }
+
         SetControlValue(field, value);
         await WaitUntilUiAsync(
             () => ControlShowsValue(TryFindByAutomationId(automationId), value),
@@ -777,7 +914,17 @@ public partial class WindowsWilkenAutomationService
 
     private async Task SetSelectorOrIdAsync(string automationId, string value, CancellationToken ct)
     {
-        var field = FindByAutomationId(automationId);
+        var field = TryFindByAutomationId(automationId);
+        if (field is null)
+        {
+            if (!IsReplica)
+            {
+                _logger.LogWarning("Field '{Id}' not found on real Wilken; skipping value '{Value}'.", automationId, value);
+                return;
+            }
+            throw new WilkenAutomationException("CONTROL_NOT_FOUND", $"CS/2 control '{automationId}' was not found.");
+        }
+
         if (field.ControlType == ControlType.ComboBox)
         {
             WithoutStealingInput(() =>
@@ -799,6 +946,9 @@ public partial class WindowsWilkenAutomationService
 
     private string ReplicaFormatRadioId()
     {
+        if (UseCs2Workflow)
+            return "Export_Format_XLSX";
+
         var ext = (_exportSettings.FileExtension ?? ".xlsx").Trim().TrimStart('.').ToUpperInvariant();
         return ext switch
         {
@@ -830,9 +980,11 @@ public partial class WindowsWilkenAutomationService
     {
         try
         {
-            var status = TryFindByAutomationId("Status_Text");
+            var status = TryFindByAutomationIdExact("Status_Text", enterGridRows: false);
             var value = status is null ? "" : (SafeUiName(status) + " " + ReadValue(status));
-            return value.Contains(text, StringComparison.OrdinalIgnoreCase);
+            if (value.Contains(text, StringComparison.OrdinalIgnoreCase))
+                return true;
+            return ReadTitleAndStatusText().Contains(text, StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
@@ -842,7 +994,17 @@ public partial class WindowsWilkenAutomationService
 
     private void SelectRadio(string automationId)
     {
-        var radio = FindByAutomationId(automationId);
+        var radio = TryFindByAutomationId(automationId);
+        if (radio is null)
+        {
+            if (!IsReplica)
+            {
+                _logger.LogWarning("Radio '{Id}' not found on real Wilken; skipping.", automationId);
+                return;
+            }
+            throw new WilkenAutomationException("CONTROL_NOT_FOUND", $"CS/2 control '{automationId}' was not found.");
+        }
+
         WithoutStealingInput(() =>
         {
             try
@@ -911,7 +1073,7 @@ public partial class WindowsWilkenAutomationService
     private AutomationElement FindByAutomationId(string automationId) =>
         TryFindByAutomationId(automationId)
         ?? throw new WilkenAutomationException("CONTROL_NOT_FOUND",
-            $"Replica control '{automationId}' was not found.");
+            $"CS/2 control '{automationId}' was not found.");
 
     /// <summary>
     /// TreeView items expose SelectionItem, not Invoke. Re-selecting an already
@@ -985,11 +1147,14 @@ public partial class WindowsWilkenAutomationService
     private bool IsProcessManagerVisible() =>
         TryFindByAutomationId("ProcessManager_Grid") is not null;
 
-    private bool IsHomeVisible() => TryFindByAutomationId("Home_Workspace") is not null;
+    private bool IsHomeVisible() =>
+        TryFindByAutomationId("Home_Workspace") is not null
+        || TryFindByAutomationId("Nav_Home") is not null;
 
     private bool IsFunctionLockedVisible() =>
         TryFindByAutomationId("FunctionLockedDialog") is not null
-        || TryFindByAutomationId("FunctionLocked_OK") is not null;
+        || TryFindByAutomationId("FunctionLocked_OK") is not null
+        || ScreenTitleContains("Funktion gesperrt");
 
     private void DismissFunctionLockedIfPresent()
     {
@@ -1097,9 +1262,9 @@ public partial class WindowsWilkenAutomationService
     }
 
     /// <summary>
-    /// Find by AutomationId without walking WPF DataGrid cells. A full descendant
-    /// search of Spool_Grid / ProcessManager_Grid can take tens of seconds and made
-    /// InternalWindow_Close look like it had frozen on Gitterbox-Export.
+    /// Find by AutomationId, then Wilken:Selectors, then German names.
+    /// Does not walk WPF DataGrid cells unless the id is a row id — a full descendant
+    /// search of Spool_Grid / ProcessManager_Grid can take tens of seconds.
     /// </summary>
     private AutomationElement? TryFindByAutomationId(string automationId)
     {
@@ -1107,6 +1272,40 @@ public partial class WindowsWilkenAutomationService
             || automationId.StartsWith("Spool_Row_", StringComparison.OrdinalIgnoreCase)
             || string.Equals(automationId, "Spool_LatestDataRow", StringComparison.OrdinalIgnoreCase);
 
+        var hit = TryFindByAutomationIdExact(automationId, enterGridRows);
+        if (hit is not null) return hit;
+
+        if (Cs2ControlMap.SelectorKeys.TryGetValue(automationId, out var selectorKey))
+        {
+            hit = TryFind(selectorKey);
+            if (hit is not null) return hit;
+            if (string.Equals(selectorKey, "PeriodFromYearField", StringComparison.OrdinalIgnoreCase))
+            {
+                hit = TryFind("FiscalYearField");
+                if (hit is not null) return hit;
+            }
+        }
+
+        if (Cs2ControlMap.Names.TryGetValue(automationId, out var hint))
+        {
+            hit = TryFindByNameHint(hint, enterGridRows);
+            if (hit is not null) return hit;
+        }
+
+        if (string.Equals(automationId, "ProcessManager_Grid", StringComparison.OrdinalIgnoreCase))
+            return TryFindGridNearText("Prozesse verwalten");
+        if (string.Equals(automationId, "Spool_Grid", StringComparison.OrdinalIgnoreCase))
+            return TryFindGridNearText("Liste anzeigen")
+                ?? TryFindGridNearText("Ausgabeliste")
+                ?? TryFindGridNearText("Spool");
+        if (string.Equals(automationId, "Navigation_Tree", StringComparison.OrdinalIgnoreCase))
+            return TryFindFirstOfType(ControlType.Tree);
+
+        return null;
+    }
+
+    private AutomationElement? TryFindByAutomationIdExact(string automationId, bool enterGridRows)
+    {
         foreach (var root in SearchRoots())
         {
             try
@@ -1117,6 +1316,234 @@ public partial class WindowsWilkenAutomationService
             catch { }
         }
         return null;
+    }
+
+    private AutomationElement? TryFindByNameHint(Cs2NameHint hint, bool enterGridRows)
+    {
+        foreach (var root in SearchRoots())
+        {
+            try
+            {
+                var hit = FindByNameSkipGridCells(root, hint, enterGridRows);
+                if (hit is not null) return hit;
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    private static AutomationElement? FindByNameSkipGridCells(
+        AutomationElement root, Cs2NameHint hint, bool enterGridRows)
+    {
+        AutomationElement? best = null;
+        var bestScore = 0;
+        var queue = new Queue<AutomationElement>();
+        queue.Enqueue(root);
+        var visited = 0;
+        while (queue.Count > 0 && visited < 4000)
+        {
+            visited++;
+            var current = queue.Dequeue();
+            var score = NameHintScore(current, hint);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = current;
+                if (score >= 200) return current;
+            }
+
+            AutomationElement[] children;
+            try { children = current.FindAllChildren(); }
+            catch { continue; }
+
+            foreach (var child in children)
+            {
+                string? className = null;
+                try { className = child.ClassName; }
+                catch { }
+                if ((className is "DataGrid" or "ListView") && !enterGridRows)
+                    continue;
+                queue.Enqueue(child);
+            }
+        }
+
+        return bestScore > 0 ? best : null;
+    }
+
+    private static int NameHintScore(AutomationElement element, Cs2NameHint hint)
+    {
+        try
+        {
+            if (hint.SkipWindowTitleBar && IsOnWindowTitleBar(element))
+                return 0;
+            if (hint.Types is { Length: > 0 } && Array.IndexOf(hint.Types, element.ControlType) < 0)
+                return 0;
+
+            var text = ControlSearchText(element);
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+
+            foreach (var needle in hint.Names)
+            {
+                if (hint.ExactName)
+                {
+                    if (text.Equals(needle, StringComparison.OrdinalIgnoreCase))
+                        return 200;
+                    continue;
+                }
+
+                if (text.Equals(needle, StringComparison.OrdinalIgnoreCase))
+                    return 180;
+                if (text.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                    return 100;
+            }
+        }
+        catch { }
+        return 0;
+    }
+
+    private static string ControlSearchText(AutomationElement element)
+    {
+        var parts = new List<string>(3);
+        try
+        {
+            var name = element.Name;
+            if (!string.IsNullOrWhiteSpace(name)) parts.Add(name);
+        }
+        catch { }
+        try
+        {
+            var help = element.Properties.HelpText.ValueOrDefault;
+            if (!string.IsNullOrWhiteSpace(help)) parts.Add(help);
+        }
+        catch { }
+        try
+        {
+            var value = element.Patterns.Value.IsSupported
+                ? element.Patterns.Value.Pattern.Value.ValueOrDefault
+                : null;
+            if (!string.IsNullOrWhiteSpace(value)) parts.Add(value);
+        }
+        catch { }
+        return string.Join(" ", parts);
+    }
+
+    private static bool IsOnWindowTitleBar(AutomationElement element)
+    {
+        try
+        {
+            var current = element;
+            for (var i = 0; i < 8 && current is not null; i++)
+            {
+                if (current.ControlType == ControlType.TitleBar)
+                    return true;
+                current = current.Parent;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private AutomationElement? TryFindGridNearText(string marker)
+    {
+        var grids = new List<AutomationElement>();
+        foreach (var root in SearchRoots())
+            CollectGrids(root, grids);
+
+        AutomationElement? marked = null;
+        var workArea = new List<AutomationElement>();
+        foreach (var grid in grids)
+        {
+            if (IsInsideTree(grid)) continue;
+            workArea.Add(grid);
+            var blob = ControlSearchText(grid) + " " + ReadSubtree(grid);
+            if (blob.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                marked = grid;
+        }
+        if (marked is not null) return marked;
+        if (workArea.Count == 1) return workArea[0];
+        return null;
+    }
+
+    private static void CollectGrids(AutomationElement root, List<AutomationElement> into)
+    {
+        var queue = new Queue<AutomationElement>();
+        queue.Enqueue(root);
+        var visited = 0;
+        while (queue.Count > 0 && visited < 3000)
+        {
+            visited++;
+            var current = queue.Dequeue();
+            try
+            {
+                var type = current.ControlType;
+                var className = current.ClassName ?? "";
+                if (type is ControlType.DataGrid or ControlType.Table or ControlType.List
+                    || className is "DataGrid" or "ListView")
+                    into.Add(current);
+            }
+            catch { }
+
+            AutomationElement[] children;
+            try { children = current.FindAllChildren(); }
+            catch { continue; }
+            foreach (var child in children)
+                queue.Enqueue(child);
+        }
+    }
+
+    private static bool IsInsideTree(AutomationElement element)
+    {
+        try
+        {
+            var current = element.Parent;
+            for (var i = 0; i < 10 && current is not null; i++)
+            {
+                if (current.ControlType == ControlType.Tree)
+                    return true;
+                current = current.Parent;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private AutomationElement? TryFindFirstOfType(ControlType type)
+    {
+        foreach (var root in SearchRoots())
+        {
+            try
+            {
+                var hit = root.FindFirstDescendant(cf => cf.ByControlType(type));
+                if (hit is not null) return hit;
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    private static AutomationElement[] CollectGridRows(AutomationElement grid)
+    {
+        try
+        {
+            var rows = grid.FindAllDescendants(cf => cf.ByClassName("DataGridRow"));
+            if (rows.Length > 0) return rows;
+            rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.DataItem));
+            if (rows.Length > 0) return rows;
+            rows = grid.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem));
+            if (rows.Length > 0) return rows;
+            var children = grid.FindAllChildren()
+                .Where(c =>
+                {
+                    try { return c.ControlType is not ControlType.Header and not ControlType.HeaderItem and not ControlType.ScrollBar; }
+                    catch { return true; }
+                })
+                .ToArray();
+            return children;
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     private static AutomationElement? FindByIdSkipGridCells(

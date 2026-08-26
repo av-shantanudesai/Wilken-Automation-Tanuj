@@ -57,6 +57,12 @@ public class RunRepository : IRunRepository
             .OrderBy(r => r.CreatedAt)
             .FirstOrDefaultAsync(ct);
 
+    public Task<List<AutomationRun>> ListByStatusAsync(RunStatus status, CancellationToken ct) =>
+        _db.AutomationRuns
+            .Where(r => r.Status == status)
+            .OrderBy(r => r.CreatedAt)
+            .ToListAsync(ct);
+
     public async Task UpdateAsync(AutomationRun run, CancellationToken ct)
     {
         run.UpdatedAt = DateTime.UtcNow;

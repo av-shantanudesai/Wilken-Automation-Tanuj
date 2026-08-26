@@ -11,13 +11,61 @@ using WilkenAutomation.Worker.Wilken;
 using WilkenAutomation.Worker.Windows;
 using WilkenAutomation.Worker.Worker;
 
-if (args.Any(a => a.Equals("--inspect", StringComparison.OrdinalIgnoreCase)))
+Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+
+bool HasFlag(string name) =>
+    args.Any(a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+int ArgInt(string name, int fallback)
+{
+    for (var i = 0; i < args.Length - 1; i++)
+    {
+        if (args[i].Equals(name, StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(args[i + 1], out var value))
+            return value;
+    }
+    return fallback;
+}
+
+if (HasFlag("--self-test"))
+{
+    Environment.ExitCode = InspectSelfTest.Run();
+    return;
+}
+
+if (HasFlag("--inspect-watch") || HasFlag("--inspect-record"))
+{
+    Environment.ExitCode = InspectCaptureRunner.Run(
+        record: HasFlag("--inspect-record") || HasFlag("--inspect-watch"),
+        intervalMs: ArgInt("--interval", 800),
+        durationSeconds: ArgInt("--duration", 0),
+        autoApply: !HasFlag("--no-apply"));
+    return;
+}
+
+if (HasFlag("--apply-selectors"))
+{
+    Environment.ExitCode = SelectorApply.Run(HasFlag("--force"));
+    return;
+}
+
+if (HasFlag("--seed-jobs"))
+{
+    Environment.ExitCode = await SeedJobsRunner.RunAsync(args);
+    return;
+}
+
+if (HasFlag("--inspect"))
 {
     var rest = args.SkipWhile(a => !a.Equals("--inspect", StringComparison.OrdinalIgnoreCase)).Skip(1).ToArray();
     var dump = rest.Length == 0 || rest[0] is "--list" or "-l"
         ? UiaTreeDumper.ListTopLevelWindows()
-        : UiaTreeDumper.DumpWindowByTitle(rest[0]);
-    var outputPath = Path.GetFullPath($"wilken-controls-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+        : rest[0] is "--all" or "-a"
+            ? UiaTreeDumper.DumpAllInterestingWindows()
+            : UiaTreeDumper.DumpWindowByTitle(rest[0]);
+    var outputDir = Path.Combine(AppContext.BaseDirectory, "Logs", "Inspect");
+    Directory.CreateDirectory(outputDir);
+    var outputPath = Path.Combine(outputDir, $"wilken-controls-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
     File.WriteAllText(outputPath, dump);
     Console.WriteLine(dump);
     Console.WriteLine($"\nControl tree written to {outputPath}");
@@ -85,7 +133,14 @@ builder.Services.AddSingleton(workerSettings);
 builder.Services.AddSingleton(builder.Configuration.GetSection(MaintenanceSettings.Section).Get<MaintenanceSettings>() ?? new MaintenanceSettings());
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
-JwtTokenService.EnsureProductionKey(jwtOptions, builder.Environment.EnvironmentName);
+if (workerSettings.AllowDevelopmentJwt)
+{
+    Console.WriteLine("AllowDevelopmentJwt is on — committed Jwt:Key is accepted (test Worker publish).");
+}
+else
+{
+    JwtTokenService.EnsureProductionKey(jwtOptions, builder.Environment.EnvironmentName);
+}
 builder.Services.AddSingleton(jwtOptions);
 builder.Services.AddSingleton(new JwtTokenService(jwtOptions));
 
@@ -146,11 +201,14 @@ switch (workerSettings.AutomationMode)
         Console.WriteLine("Handelsrecht → Zugangsliste; Steuerrecht → Anlagenspiegel. Exports are XLSX.");
         break;
     case AutomationMode.Wilken:
-        Console.WriteLine("MODE: Wilken — attach-only real desktop (Citrix).");
-        Console.WriteLine("  1. Open Test Environment from Citrix Workspace and log in yourself.");
-        Console.WriteLine("  2. Run this worker inside that desktop (same Windows session as Wilken).");
-        Console.WriteLine("  3. Inspect first: dotnet run --project WilkenAutomation.Worker -- --inspect");
-        Console.WriteLine("  4. Map Wilken:Selectors from the dump, then start a run. Worker never launches or logs in.");
+        Console.WriteLine("MODE: Wilken — attach-only real desktop (Citrix Test Environment).");
+        Console.WriteLine("  Same CS/2 workflow as WilkenCs2ReplicaMock: Prozesse verwalten → save →");
+        Console.WriteLine("  Ausführen → Liste anzeigen → spool → Gitterbox XLSX → InternalWindow_Close.");
+        Console.WriteLine("  Log in to Wilken yourself, then:");
+        Console.WriteLine("    WilkenAutomation.Worker.exe --seed-jobs --client 02 --year 2020");
+        Console.WriteLine("    WilkenAutomation.Worker.exe");
+        Console.WriteLine("  Optional if a control is missed: --inspect-watch --inspect-record, then --apply-selectors.");
+        Console.WriteLine("  See TEST-ENVIRONMENT.txt in this folder.");
         break;
     default:
         Console.WriteLine("MODE: Mock — NO desktop window. Jobs are simulated.");

@@ -10,6 +10,7 @@ public interface IRunRepository
     Task<List<AutomationRun>> ListAsync(CancellationToken ct, long userId);
     Task<IReadOnlyDictionary<string, StatusCountsDto>> GetCountsForRunsAsync(IEnumerable<string> runIds, CancellationToken ct);
     Task<AutomationRun?> GetActiveRunAsync(CancellationToken ct);
+    Task<List<AutomationRun>> ListByStatusAsync(RunStatus status, CancellationToken ct);
     Task UpdateAsync(AutomationRun run, CancellationToken ct);
 
     /// <summary>Recomputes the run counter columns from the job table (source of truth).</summary>
@@ -35,6 +36,7 @@ public interface IUserRepository
 {
     Task<AppUser?> GetByIdAsync(long id, CancellationToken ct);
     Task<AppUser?> GetByEmailAsync(string email, CancellationToken ct);
+    Task<AppUser?> GetFirstAsync(CancellationToken ct);
     Task<AppUser> CreateAsync(AppUser user, CancellationToken ct);
 }
 

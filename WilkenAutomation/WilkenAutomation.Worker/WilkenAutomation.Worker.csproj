@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <None Include="..\WilkenAutomation.Application\ExportDefinitions\catalog.json" Link="export-definitions.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="TEST-ENVIRONMENT.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" Condition="Exists('appsettings.Local.json')" />
   </ItemGroup>
 

@@ -79,6 +79,12 @@ public class WorkerSettings
     public int PollIntervalMs { get; set; } = 1000;
     public int HeartbeatIntervalMs { get; set; } = 2000;
     public string ApiBaseUrl { get; set; } = "http://localhost:5210";
+    /// <summary>
+    /// When true, the committed DevOnly Jwt:Key is allowed even if the host
+    /// environment defaults to Production (typical for a published Worker.exe).
+    /// Set false and replace Jwt:Key before a real production deploy.
+    /// </summary>
+    public bool AllowDevelopmentJwt { get; set; }
     /// <summary>Re-queue RUNNING jobs older than this. Must exceed report+export timeouts.</summary>
     public int HungJobTimeoutMinutes { get; set; } = 45;
     public int MaintenanceIntervalMinutes { get; set; } = 30;

@@ -14,7 +14,8 @@ namespace WilkenAutomation.Worker.Wilken;
 
 /// <summary>
 /// Real Wilken CS/2 desktop automation (AutomationMode=Wilken), built on Windows
-/// UI Automation via FlaUI (UIA3). Runs in the interactive Windows session.
+/// UI Automation via FlaUI (UIA3). Job steps follow the WilkenCs2ReplicaMock CS/2
+/// workflow. Replica vs real Wilken only changes launch vs attach.
 /// Combo selection and dialog handling live in companion partial files.
 /// </summary>
 public partial class WindowsWilkenAutomationService : IWilkenAutomationService, IDisposable
@@ -36,9 +37,16 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public WilkenSessionStatus SessionStatus { get; private set; } = WilkenSessionStatus.NotRunning;
 
+    /// <summary>
+    /// Replica exe vs real Citrix Wilken. Session launch/attach only.
+    /// Job steps always use the CS/2 workflow (same as WilkenCs2ReplicaMock).
+    /// </summary>
     private bool IsReplica =>
         (_options.ProcessName ?? "").Contains("WilkenCs2ReplicaMock", StringComparison.OrdinalIgnoreCase)
         || EffectiveExecutablePath().Contains("WilkenCs2ReplicaMock", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Prozesse verwalten → save → execute → Liste anzeigen → spool → Gitterbox → internal close.</summary>
+    private bool UseCs2Workflow => true;
 
     public WindowsWilkenAutomationService(
         WilkenOptions options,
@@ -68,6 +76,27 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
             return;
 
         EnsureInspectedSelectors();
+        if (UseCs2Workflow && !IsReplica)
+        {
+            var missingCs2 = WilkenSelectorCatalog.MissingCs2(_options.Selectors);
+            if (missingCs2.Count > 0)
+            {
+                _logger.LogWarning(
+                    "CS/2 Wilken:Selectors still empty ({Count}): {Keys}. " +
+                    "On Test Wilken run --inspect-watch --inspect-record (click every German control), then --apply-selectors.",
+                    missingCs2.Count, string.Join(", ", missingCs2));
+            }
+            else
+            {
+                _logger.LogInformation("All CS/2 Wilken:Selectors are filled from inspect.");
+            }
+        }
+        if (UseCs2Workflow)
+        {
+            _logger.LogInformation(
+                "CS/2 workflow: Prozesse verwalten → save → Ausführen → Liste anzeigen → spool → Gitterbox-Export → InternalWindow_Close. " +
+                "Controls resolve by AutomationId, then Wilken:Selectors, then German names.");
+        }
 
         SessionStatus = WilkenSessionStatus.Starting;
         _automation ??= new UIA3Automation();
@@ -310,14 +339,14 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public Task CaptureSpoolSnapshotAsync(CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
             ReplicaCaptureSpoolSnapshot();
         return Task.CompletedTask;
     }
 
     public async Task OpenExportDefinitionAsync(string definitionName, CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
         {
             await ReplicaOpenReportAsync(definitionName, ct);
             return;
@@ -328,7 +357,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task OpenAssetAccountingAsync(CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
         {
             await ReplicaOpenReportAsync(_job?.ExportDefinition, ct);
             return;
@@ -344,7 +373,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task SetFiscalYearAsync(int fiscalYear, CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
         {
             await ReplicaSetPeriodAsync(fiscalYear, ct);
             return;
@@ -361,7 +390,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task SelectDepartmentAsync(string department, CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
         {
             await ReplicaSetFachbereichAsync(department, ct);
             return;
@@ -373,7 +402,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task StartEvaluationAsync(CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
         {
             await ReplicaExecuteAsync(ct);
             return;
@@ -388,7 +417,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task WaitForReportReadyAsync(CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
         {
             await ReplicaWaitForProgressAsync(ct);
             return;
@@ -412,7 +441,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task OpenSpoolAsync(CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
         {
             await ReplicaOpenSpoolAsync(ct);
             return;
@@ -427,7 +456,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task<string> ExportAsync(ExportJob job, CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
             return await ReplicaExportAsync(job, ct);
 
         GuardHealthy();
@@ -468,7 +497,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public async Task ReturnToProcessManagerAsync(CancellationToken ct)
     {
-        if (IsReplica)
+        if (UseCs2Workflow)
             await ReplicaReturnToProcessManagerAsync(ct);
     }
 
@@ -736,7 +765,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     private void EnsureInspectedSelectors()
     {
-        if (!_options.RequireInspectedSelectors || IsReplica)
+        if (!_options.RequireInspectedSelectors || IsReplica || UseCs2Workflow)
             return;
 
         var missing = WilkenSelectorCatalog.MissingRequired(_options.Selectors);
@@ -1062,6 +1091,16 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                 "classname" => root.FindFirstDescendant(cf => cf.ByClassName(value)),
                 "namecontains" => root.FindAllDescendants()
                     .FirstOrDefault(e => (e.Name ?? "").Contains(value, StringComparison.OrdinalIgnoreCase)),
+                "helptextcontains" => root.FindAllDescendants()
+                    .FirstOrDefault(e =>
+                    {
+                        try
+                        {
+                            return (e.Properties.HelpText.ValueOrDefault ?? "")
+                                .Contains(value, StringComparison.OrdinalIgnoreCase);
+                        }
+                        catch { return false; }
+                    }),
                 "frameworkid" => root.FindAllDescendants()
                     .FirstOrDefault(e => (e.Properties.FrameworkId.ValueOrDefault ?? "")
                         .Equals(value, StringComparison.OrdinalIgnoreCase)),
