@@ -279,5 +279,24 @@ public class MockLifecycleTests : IDisposable
         Assert.NotEqual(JobStatus.Running, job.Status);
     }
 
+    [Fact]
+    public async Task ClaimNextEligible_MarksRunning_AndExecutorStillCompletes()
+    {
+        var generator = _ctx.Generator();
+        var config = generator.BuildConfig(TestData.SmallRunRequest(1, 1));
+        var run = await generator.GenerateRunAsync(config, null, true, CancellationToken.None, 1);
+
+        var claimed = await _ctx.Jobs.ClaimNextEligibleAsync(run.RunId, CancellationToken.None);
+        Assert.NotNull(claimed);
+        Assert.Equal(JobStatus.Running, claimed!.Status);
+        var leftover = await _ctx.Jobs.GetNextEligibleAsync(run.RunId, CancellationToken.None);
+        if (leftover is not null)
+            Assert.NotEqual(claimed.JobId, leftover.JobId);
+
+        var result = await _ctx.Executor(_ctx.MockAutomation()).ExecuteAsync(claimed, config, CancellationToken.None);
+        Assert.Equal(JobStatus.SuccessWithData, result.FinalStatus);
+        Assert.Equal(1, claimed.AttemptCount);
+    }
+
     public void Dispose() => _ctx.Dispose();
 }

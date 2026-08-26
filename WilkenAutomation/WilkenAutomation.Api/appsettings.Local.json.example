@@ -1,0 +1,14 @@
+{
+  "Database": {
+    "Provider": "MySql",
+    "ConnectionString": "Server=127.0.0.1;Port=3306;Database=wilken;User=wilken;AllowUserVariables=True;SslMode=Preferred;AllowPublicKeyRetrieval=True",
+    "Password": "set-via-WILKEN_DB_PASSWORD-or-here"
+  },
+  "Jwt": {
+    "Key": "replace-with-a-unique-secret-at-least-32-chars",
+    "WorkerKey": "replace-with-a-distinct-worker-secret-32ch"
+  },
+  "Auth": {
+    "AllowRegistration": true
+  }
+}

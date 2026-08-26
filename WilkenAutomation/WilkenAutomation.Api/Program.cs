@@ -17,7 +17,8 @@ using WilkenAutomation.Infrastructure.Configuration;
 using WilkenAutomation.Infrastructure.Database;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+if (!builder.Environment.IsEnvironment("Testing"))
+    builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddControllers(options => options.Filters.Add<AuthExceptionFilter>())
@@ -133,7 +134,9 @@ builder.Services.AddSingleton(builder.Configuration.GetSection(ExportSettings.Se
 builder.Services.AddSingleton(ExportDefinitionCatalog.Load(builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<IExportExecutor, SpoolExecutor>();
 builder.Services.AddSingleton<IExportExecutor, ViewExecutor>();
+builder.Services.AddSingleton(builder.Configuration.GetSection(AuthOptions.Section).Get<AuthOptions>() ?? new AuthOptions());
 builder.Services.AddScoped<JobGeneratorService>();
+builder.Services.AddScoped<RunLifecycleService>();
 builder.Services.AddScoped<RunStatisticsService>();
 builder.Services.AddSingleton<WorkerStatusRegistry>();
 builder.Services.AddSingleton<IRealtimeNotifier, HubRealtimeNotifier>();
@@ -163,7 +166,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-else
+else if (app.Environment.IsProduction())
 {
     app.UseHsts();
     app.UseHttpsRedirection();
@@ -180,3 +183,5 @@ app.Logger.LogInformation("WilkenAutomation API starting. Database provider: {Pr
     app.Configuration["Database:Provider"] ?? "MySql");
 
 app.Run();
+
+public partial class Program;

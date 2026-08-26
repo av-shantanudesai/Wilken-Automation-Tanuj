@@ -120,7 +120,7 @@ public class JobWorker : BackgroundService
                     run.RunId, requeued);
         }
 
-        var job = await jobs.GetNextEligibleAsync(run.RunId, ct);
+        var job = await jobs.ClaimNextEligibleAsync(run.RunId, ct);
         if (job is null)
         {
             await runs.RefreshCountersAsync(run.RunId, ct);

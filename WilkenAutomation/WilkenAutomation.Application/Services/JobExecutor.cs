@@ -66,7 +66,12 @@ public class JobExecutor
     public async Task<JobExecutionResult> ExecuteAsync(ExportJob job, RunConfig config, CancellationToken ct)
     {
         // Step 1 - persist RUNNING + start time, then notify.
-        JobStateMachine.EnsureTransition(job.Status, JobStatus.Running);
+        // ClaimNextEligibleAsync may already have marked the row Running so two
+        // workers cannot pick the same job. Attempt bookkeeping still happens here.
+        if (job.Status is JobStatus.Pending or JobStatus.Retry)
+            JobStateMachine.EnsureTransition(job.Status, JobStatus.Running);
+        else if (job.Status != JobStatus.Running)
+            throw new InvalidOperationException($"Job {job.JobId} in status {job.Status} cannot start an attempt.");
         var attemptNumber = job.AttemptCount + 1;
         var attempt = new JobAttempt
         {

@@ -31,6 +31,14 @@
     </ProjectReference>
   </ItemGroup>
 
+  <!-- Replica appsettings.json must not land next to Worker appsettings.json on publish. -->
+  <Target Name="ExcludeReplicaAppSettingsFromPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(RelativePath)' == 'appsettings.json' AND $([System.String]::Copy('%(Identity)').Contains('WilkenCs2ReplicaMock'))" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="CopyDesktopApps" AfterTargets="Build">
     <ItemGroup>
       <_TestDesktopOut Include="..\WilkenAutomation.TestDesktop\bin\$(Configuration)\net8.0-windows\**\*.*" />

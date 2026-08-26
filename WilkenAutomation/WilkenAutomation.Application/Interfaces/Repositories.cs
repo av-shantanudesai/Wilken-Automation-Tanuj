@@ -55,11 +55,23 @@ public interface IJobRepository
     Task<(int Total, List<ExportJob> Items)> ListAsync(JobFilter filter, CancellationToken ct);
     Task<List<ExportJob>> GetAllForRunAsync(string runId, CancellationToken ct);
     Task<ExportJob?> GetNextEligibleAsync(string runId, CancellationToken ct);
+
+    /// <summary>
+    /// Atomically selects the next Pending/Retry job and marks it Running so two
+    /// worker processes cannot execute the same row. Does not increment AttemptCount;
+    /// JobExecutor still records the attempt.
+    /// </summary>
+    Task<ExportJob?> ClaimNextEligibleAsync(string runId, CancellationToken ct);
+
     Task<ExportJob?> GetCurrentRunningAsync(CancellationToken ct);
     Task<(ExportJob? LastSuccess, ExportJob? LastError)> GetStatusMarkersAsync(string runId, CancellationToken ct);
     Task<List<ExportJob>> GetStaleRunningAsync(CancellationToken ct);
     Task<List<ExportJob>> GetSuccessfulAsync(string runId, CancellationToken ct);
     Task UpdateAsync(ExportJob job, CancellationToken ct);
+
+    /// <summary>Moves every FailedFinal job on the run back to Pending in one SaveChanges.</summary>
+    Task<int> RequeueFailedJobsAsync(string runId, CancellationToken ct);
+
     Task<(double? AverageMs, int CompletedCount)> GetRuntimeStatsAsync(string runId, CancellationToken ct);
 
     Task AddAttemptAsync(JobAttempt attempt, CancellationToken ct);

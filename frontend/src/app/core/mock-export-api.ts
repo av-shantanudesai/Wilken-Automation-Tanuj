@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, DestroyRef, inject } from '@angular/core';
 import { AuthService } from './auth.service';
 import { ExportApi } from './export-api';
 import {
@@ -58,7 +58,7 @@ const DEPARTMENTS_DEFAULT = ['Handelsrecht', 'Steuerrecht'];
  * demonstrates the same restart/recovery semantics as the real backend:
  * interrupted RUNNING jobs are re-queued and completed jobs are never repeated.
  */
-@Injectable({ providedIn: 'root' })
+@Injectable()
 export class MockExportApi implements ExportApi {
   private auth = inject(AuthService);
   private state: MockState;
@@ -74,7 +74,8 @@ export class MockExportApi implements ExportApi {
   constructor() {
     this.state = this.load();
     this.recoverStaleJobs();
-    setInterval(() => this.tick(), 250);
+    const timer = setInterval(() => this.tick(), 250);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
   }
 
   // ---------------------------------------------------------------- engine

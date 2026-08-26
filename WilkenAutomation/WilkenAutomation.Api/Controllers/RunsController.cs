@@ -22,6 +22,7 @@ public class RunsController : ControllerBase
     private readonly RunStatisticsService _statistics;
     private readonly WorkerStatusRegistry _registry;
     private readonly IRealtimeNotifier _notifier;
+    private readonly RunLifecycleService _lifecycle;
 
     public RunsController(
         IRunRepository runs,
@@ -29,7 +30,8 @@ public class RunsController : ControllerBase
         JobGeneratorService generator,
         RunStatisticsService statistics,
         WorkerStatusRegistry registry,
-        IRealtimeNotifier notifier)
+        IRealtimeNotifier notifier,
+        RunLifecycleService lifecycle)
     {
         _runs = runs;
         _jobs = jobs;
@@ -37,6 +39,7 @@ public class RunsController : ControllerBase
         _statistics = statistics;
         _registry = registry;
         _notifier = notifier;
+        _lifecycle = lifecycle;
     }
 
     [HttpGet]
@@ -69,64 +72,22 @@ public class RunsController : ControllerBase
     [HttpPost("{runId}/start")]
     public async Task<ActionResult<RunSummaryDto>> Start(string runId, CancellationToken ct)
     {
-        var run = await OwnedRunAsync(runId, ct);
-        if (run is null) return NotFound();
-        if (run.Status is RunStatus.Created or RunStatus.Paused or RunStatus.Completed)
-        {
-            run.Status = RunStatus.Running;
-            run.StartedAt ??= DateTime.UtcNow;
-            run.CompletedAt = null;
-            await _runs.UpdateAsync(run, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId, runId);
-        }
-        return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
+        var run = await _lifecycle.StartAsync(runId, User.GetRequiredUserId(), ct);
+        return run is null ? NotFound() : run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
     }
 
     [HttpPost("{runId}/pause")]
     public async Task<ActionResult<RunSummaryDto>> Pause(string runId, CancellationToken ct)
     {
-        var run = await OwnedRunAsync(runId, ct);
-        if (run is null) return NotFound();
-        if (run.Status == RunStatus.Running)
-        {
-            run.Status = RunStatus.Paused;
-            await _runs.UpdateAsync(run, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId, runId);
-        }
-        return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
+        var run = await _lifecycle.PauseAsync(runId, User.GetRequiredUserId(), ct);
+        return run is null ? NotFound() : run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
     }
 
     [HttpPost("{runId}/retry-failed")]
     public async Task<ActionResult<RunSummaryDto>> RetryFailed(string runId, CancellationToken ct)
     {
-        var run = await OwnedRunAsync(runId, ct);
-        if (run is null) return NotFound();
-
-        var (_, failed) = await _jobs.ListAsync(
-            new JobFilter { RunId = runId, Status = JobStatus.FailedFinal, PageSize = 500 }, ct);
-        foreach (var job in failed)
-        {
-            JobStateMachine.EnsureTransition(job.Status, JobStatus.Pending);
-            job.Status = JobStatus.Pending;
-            job.ErrorCode = null;
-            job.ErrorMessage = null;
-            job.UpdatedAt = DateTime.UtcNow;
-            await _jobs.UpdateAsync(job, ct);
-        }
-
-        if (failed.Count > 0)
-        {
-            if (run.Status == RunStatus.Completed)
-            {
-                run.Status = RunStatus.Running;
-                run.CompletedAt = null;
-                await _runs.UpdateAsync(run, ct);
-            }
-            await _runs.RefreshCountersAsync(runId, ct);
-            await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId }, ct, run.UserId, runId);
-        }
-
-        return run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
+        var run = await _lifecycle.RetryFailedAsync(runId, User.GetRequiredUserId(), ct);
+        return run is null ? NotFound() : run.ToSummaryDto(await _runs.GetCountsAsync(runId, ct));
     }
 
     [HttpGet("{runId}/status")]

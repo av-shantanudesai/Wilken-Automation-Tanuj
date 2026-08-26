@@ -80,9 +80,9 @@ public class WorkerSettings
     public int HeartbeatIntervalMs { get; set; } = 2000;
     public string ApiBaseUrl { get; set; } = "http://localhost:5210";
     /// <summary>
-    /// When true, the committed DevOnly Jwt:Key is allowed even if the host
-    /// environment defaults to Production (typical for a published Worker.exe).
-    /// Set false and replace Jwt:Key before a real production deploy.
+    /// When true, a development Jwt:Key from Local.json / user-secrets is allowed
+    /// even if the host environment name is Production (published Worker.exe).
+    /// Default is false. Test VDA still sets this in gitignored appsettings.Local.json.
     /// </summary>
     public bool AllowDevelopmentJwt { get; set; }
     /// <summary>Re-queue RUNNING jobs older than this. Must exceed report+export timeouts.</summary>
@@ -115,6 +115,14 @@ public class JwtOptions
     public int RefreshTokenDays { get; set; } = 7;
     /// <summary>Worker-to-API JWT lifetime in hours. Clamped to 1–4.</summary>
     public int WorkerTokenHours { get; set; } = 1;
+}
+
+public class AuthOptions
+{
+    public const string Section = "Auth";
+
+    /// <summary>When false, POST /api/auth/register returns 403. Default true for the lab/Test API.</summary>
+    public bool AllowRegistration { get; set; } = true;
 }
 
 /// <summary>Defaults used when a run request does not specify scope explicitly.</summary>

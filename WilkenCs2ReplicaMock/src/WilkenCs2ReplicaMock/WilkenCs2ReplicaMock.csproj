@@ -9,6 +9,10 @@
     <RootNamespace>WilkenCs2ReplicaMock</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <None Update="appsettings.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <!-- Worker publish must keep Worker\appsettings.json at the output root (NETSDK1152). -->
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </None>
   </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using WilkenAutomation.Application.Configuration;
 using WilkenAutomation.Application.Interfaces;
 using WilkenAutomation.Application.Models;
 
@@ -9,16 +10,25 @@ public class AuthService
     private readonly IUserRepository _users;
     private readonly IRefreshTokenRepository _refreshTokens;
     private readonly JwtTokenService _tokens;
+    private readonly AuthOptions _authOptions;
 
-    public AuthService(IUserRepository users, IRefreshTokenRepository refreshTokens, JwtTokenService tokens)
+    public AuthService(
+        IUserRepository users,
+        IRefreshTokenRepository refreshTokens,
+        JwtTokenService tokens,
+        AuthOptions? authOptions = null)
     {
         _users = users;
         _refreshTokens = refreshTokens;
         _tokens = tokens;
+        _authOptions = authOptions ?? new AuthOptions();
     }
 
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto request, string? ip, CancellationToken ct)
     {
+        if (!_authOptions.AllowRegistration)
+            throw new AuthException("REGISTRATION_DISABLED", "Self-registration is disabled.");
+
         var email = NormalizeEmail(request.Email);
         ValidatePassword(request.Password);
 

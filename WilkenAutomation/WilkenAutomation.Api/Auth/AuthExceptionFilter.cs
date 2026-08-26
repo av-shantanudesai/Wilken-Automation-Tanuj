@@ -15,6 +15,7 @@ public class AuthExceptionFilter : IExceptionFilter
                 StatusCode = auth.ErrorCode switch
                 {
                     "EMAIL_TAKEN" => StatusCodes.Status409Conflict,
+                    "REGISTRATION_DISABLED" => StatusCodes.Status403Forbidden,
                     "INVALID_CREDENTIALS" or "REFRESH_INVALID" or "REFRESH_REUSE" => StatusCodes.Status401Unauthorized,
                     _ => StatusCodes.Status400BadRequest
                 }

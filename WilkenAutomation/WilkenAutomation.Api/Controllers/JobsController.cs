@@ -16,14 +16,14 @@ public class JobsController : ControllerBase
     private readonly IJobRepository _jobs;
     private readonly IRunRepository _runs;
     private readonly ILogRepository _logs;
-    private readonly IRealtimeNotifier _notifier;
+    private readonly RunLifecycleService _lifecycle;
 
-    public JobsController(IJobRepository jobs, IRunRepository runs, ILogRepository logs, IRealtimeNotifier notifier)
+    public JobsController(IJobRepository jobs, IRunRepository runs, ILogRepository logs, RunLifecycleService lifecycle)
     {
         _jobs = jobs;
         _runs = runs;
         _logs = logs;
-        _notifier = notifier;
+        _lifecycle = lifecycle;
     }
 
     [HttpGet]
@@ -82,30 +82,15 @@ public class JobsController : ControllerBase
     [HttpPost("{jobId}/retry")]
     public async Task<ActionResult<JobDto>> Requeue(string jobId, CancellationToken ct)
     {
-        var job = await _jobs.GetByJobIdAsync(jobId, ct);
-        if (job is null) return NotFound();
-        if (await ForbidRunAsync(job.RunId, ct) is { } denied) return denied;
-        if (!JobStateMachine.CanTransition(job.Status, JobStatus.Pending))
-            return Conflict(new { message = $"Job in status {job.Status} cannot be re-queued." });
-
-        job.Status = JobStatus.Pending;
-        job.ErrorCode = null;
-        job.ErrorMessage = null;
-        job.UpdatedAt = DateTime.UtcNow;
-        await _jobs.UpdateAsync(job, ct);
-
-        var run = await _runs.GetByRunIdAsync(job.RunId, ct);
-        if (run is not null && run.Status == RunStatus.Completed)
+        try
         {
-            run.Status = RunStatus.Running;
-            run.CompletedAt = null;
-            await _runs.UpdateAsync(run, ct);
+            var job = await _lifecycle.RequeueJobAsync(jobId, User.GetRequiredUserId(), ct);
+            return job is null ? NotFound() : job.ToDto();
         }
-        await _runs.RefreshCountersAsync(job.RunId, ct);
-
-        await _notifier.PublishAsync(SignalREvents.JobStatusChanged, job.ToDto(), ct, run?.UserId, job.RunId);
-        await _notifier.PublishAsync(SignalREvents.RunProgressChanged, new { runId = job.RunId }, ct, run?.UserId, job.RunId);
-        return job.ToDto();
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
 
     private async Task<ActionResult?> ForbidRunAsync(string runId, CancellationToken ct)

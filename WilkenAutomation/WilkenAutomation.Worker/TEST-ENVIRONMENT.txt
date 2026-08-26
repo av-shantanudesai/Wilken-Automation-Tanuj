@@ -8,10 +8,11 @@ WHERE things run
     Citrix Workspace in Chrome/Edge is only a picture — UIA cannot see Wilken.
 
   CITRIX "Test Environment" DESKTOP (the Windows session where real Wilken runs)
-    Copy the published folder here. Open CMD/PowerShell INSIDE that desktop.
+    Copy the published folder HERE. Open CMD/PowerShell INSIDE that desktop.
     Log in to Wilken yourself. Run inspect + jobs + Worker.exe from that folder.
 
-Do not use --desktop-test or --replica-login-smoke on Citrix.
+Do not use --desktop-test, --replica-smoke, or --replica-login-smoke on Citrix.
+Those flags drive the laptop replica, not real Test Wilken.
 
 
 A. On your laptop — publish
@@ -27,6 +28,18 @@ A. On your laptop — publish
     or  %USERPROFILE%\Desktop\WilkenWorker
 
   Must include: WilkenAutomation.Worker.exe, DLLs, appsettings.json, TEST-ENVIRONMENT.txt
+
+  ALSO copy appsettings.Local.json into the SAME folder as the exe.
+    dotnet publish does NOT copy it (CopyToPublishDirectory=Never).
+    Source on the laptop:
+      WilkenAutomation\WilkenAutomation.Worker\appsettings.Local.json
+    Destination on Test:
+      C:\WilkenWorker\appsettings.Local.json
+
+    Without Local.json, Worker.exe (no flags) and --seed-jobs will not start:
+      no Jwt:Key, no MySQL connection, AllowDevelopmentJwt=false.
+    --inspect / --inspect-watch / --inspect-record do NOT need Local.json.
+
   Do NOT copy the source project folder or bin\Debug.
 
 
@@ -36,6 +49,8 @@ B. On the Test desktop — open a prompt in the Worker folder
      not a single published app window if you can avoid it).
   2. Confirm you are on that Windows desktop (taskbar, Explorer), not only
      the browser on your laptop.
+     Task Manager: if Wilken is under Citrix HDX Engine with \\Remote, you are
+     still on the laptop pixel stream — UIA cannot see Wilken. Stop.
   3. Open cmd.exe or PowerShell.
   4. cd to the copied folder (example):
 
@@ -44,19 +59,32 @@ B. On the Test desktop — open a prompt in the Worker folder
      Every command below is run from THIS directory.
 
 
-C. Check appsettings.json next to the exe
------------------------------------------
-  File:  C:\WilkenWorker\appsettings.json   (same folder as the exe)
+C. Check config next to the exe
+-------------------------------
+  Files in C:\WilkenWorker (same folder as the exe):
 
-  Must be:
+  appsettings.json  (shipped with publish — do not expect secrets here)
     Worker:AutomationMode        = Wilken
-    Worker:AllowDevelopmentJwt   = true
-    Database:ConnectionString    = remote MySQL (already set)
+    Worker:AllowDevelopmentJwt   = false
     Wilken:AttachOnly            = true
     Wilken:SkipLogin             = true
+    Wilken:MainWindowTitle       = Wilken CS/2
+    Wilken:ProcessName           = (empty — attach by window title)
+    Wilken:RequireInspectedSelectors = true
     Export:FileExtension         = .xlsx
+    Wilken:Selectors             = all "" until inspect (section F/G)
+    No Jwt:Key, no Database:ConnectionString in this file.
 
-  Wilken:Selectors can stay empty until inspect. Replica AutomationIds are unused.
+  appsettings.Local.json  (you copy this; gitignored)
+    Database:Provider + ConnectionString + Password   = remote MySQL
+    Jwt:Key + Jwt:WorkerKey                           = at least 32 chars
+    Worker:AllowDevelopmentJwt                        = true
+      (needed so a published Production Worker.exe accepts the lab JWT)
+
+  If Worker.exe exits immediately with Jwt:Key / connection-string errors,
+  Local.json is missing or not next to the exe.
+
+  Replica AutomationIds are unused on real Wilken. Selectors come from inspect.
 
 
 D. Detect UI technology (Java / Win32 / WPF / WinForms)
@@ -70,18 +98,25 @@ D. Detect UI technology (Java / Win32 / WPF / WinForms)
        WilkenAutomation.Worker.exe --inspect
 
   3. In the printed list, find the real Wilken row (not Chrome, not Edge,
-     not wfica32). Note Process, Framework, Class, Children.
+     not wfica32). Note Process, Framework, Class, Children, Title.
 
      Framework='WPF'      or WinForm or Win32 with Children > 5
-       → UIA can see controls. Continue to E then F.
+       → UIA can see controls. Continue to F (skip E).
 
      Framework='Java'  or Class contains SunAwt / GlassWnd / SWT_Window
        or Children is 0–2 on the Wilken window
-       → Java Access Bridge is required BEFORE inspect. Do E.
+       → Java Access Bridge is required BEFORE a useful dump. Do E.
 
      Process=chrome / msedge / wfica32 / Citrix
        → You are still on the laptop browser. Stop. Open the Test desktop
          and run --inspect there.
+
+  4. Window title:
+     Attach uses title CONTAINS Wilken:MainWindowTitle ("Wilken CS/2").
+     If the inspect list title does not contain that text, edit
+     C:\WilkenWorker\appsettings.json  Wilken:MainWindowTitle  to a unique
+     substring of the real title (example: Finanzmanagement).
+     Optional: set Wilken:ProcessName to the real process (javaw, etc.).
 
 
 E. If Wilken is Java — enable Access Bridge (Test desktop only)
@@ -113,12 +148,18 @@ E. If Wilken is Java — enable Access Bridge (Test desktop only)
        If IT cannot enable Access Bridge, inspect stays empty and UIA cannot
        drive a Java UI. Stop and report that — do not guess click coordinates.
 
-  4. Confirm:  dir C:\Windows\System32\WindowsAccessBridge-64.dll
+  4. 32-bit vs 64-bit:
+       A 64-bit Worker cannot use Java Access Bridge against a 32-bit JRE.
+       If Wilken's javaw is in a folder like jre-1.8\bin (32-bit), republish
+       with  -r win-x86  and copy that folder instead.
 
-  5. Restart Wilken, log in, then --inspect "Wilken". The dump must show many
+  5. Confirm:  dir C:\Windows\System32\WindowsAccessBridge-64.dll
+     (32-bit JRE uses WindowsAccessBridge-32.dll / SysWOW64.)
+
+  6. Restart Wilken, log in, then --inspect "Wilken". The dump must show many
      [Button]/[Edit] lines. Empty tree = wrong JRE or bridge still off.
 
-  6. Dump one window:
+  7. Dump one window:
 
        WilkenAutomation.Worker.exe --inspect "Wilken"
        or
@@ -140,7 +181,7 @@ F. Capture one full German job (inspect-watch + record)
 
        WilkenAutomation.Worker.exe --inspect-watch --inspect-record
 
-  Click SLOWLY through ONE complete job (same as the replica workflow).
+  Click SLOWLY through ONE complete job (same path as the replica).
   Click every control; do not skip. Typical German path:
 
      1. Prozesse verwalten
@@ -157,7 +198,8 @@ F. Capture one full German job (inspect-watch + record)
     11. Liste anzeigen  (same Wilken work area, not an OS popup)
     12. Starten  (Druckauswahl)
     13. Click the new spool / data row
-    14. Erweitert (Gitterbox-Export)
+    14. Context menu last item Export → last submenu Erweitert
+        (or the German control that opens Gitterbox-Export)
     15. XLSX + Excel + Alle
     16. Ausführen / Exportieren
     17. Inner Schließen until Prozesse verwalten is back
@@ -181,14 +223,17 @@ F. Capture one full German job (inspect-watch + record)
   (use --no-apply if you only want dumps; then run --apply-selectors yourself)
 
 
-G. Review dumps + selectors (mandatory)
----------------------------------------
+G. Review dumps + selectors (mandatory for a real job)
+------------------------------------------------------
+  Empty selectors do not hard-crash (CS/2 also tries German names), but a real
+  Test Wilken run is unreliable until inspect fills the keys below.
+
   1. Open a dump txt. Confirm Framework and that fields have IDs or German Names,
      not empty trees.
 
   2. Open C:\WilkenWorker\appsettings.json → Wilken:Selectors.
 
-     Must be filled (not "") for a real run:
+     Must be filled (not "") for a reliable run:
        ProcessManagerNav, ProcessManagerGrid, ProcessManagerOpen
        DateFromField, DateToField
        PeriodFromMonthField, PeriodFromYearField, PeriodToMonthField, PeriodToYearField
@@ -219,6 +264,7 @@ G. Review dumps + selectors (mandatory)
 H. Put a job in the database
 ----------------------------
   Same folder C:\WilkenWorker. MySQL must be reachable from the Test desktop.
+  Requires appsettings.Local.json (section C).
 
        WilkenAutomation.Worker.exe --seed-jobs --client 02 --year 2020 --department Handelsrecht --export Zugangsliste
 
@@ -231,12 +277,13 @@ H. Put a job in the database
 I. Run automation
 -----------------
   Wilken still logged in, main screen visible, same Test desktop.
+  Local.json present. Selectors filled from inspect.
 
        WilkenAutomation.Worker.exe
 
   No extra flags. The Worker attaches (does not launch or kill Wilken) and
   follows the CS/2 path: Prozesse verwalten → Zeitraum/Fachbereich → Speichern
-  → Ausführen → Liste anzeigen → Gitterbox XLSX → inner Schließen.
+  → Ausführen → Liste anzeigen → Export/Erweitert → Gitterbox XLSX → inner Schließen.
 
   Exports:  C:\WilkenExports  (see Export:RootDirectory)
   Logs:     console + C:\WilkenWorker\Logs\
@@ -246,7 +293,10 @@ I. Run automation
 
 J. If something fails
 ---------------------
+  Jwt:Key / connection not configured
+                              → copy appsettings.Local.json next to the exe
   Empty inspect dump          → Java Access Bridge (section E) or wrong desktop
+  WILKEN_NOT_ATTACHED         → title mismatch (section D.4) or Wilken not logged in
   CONTROL_NOT_FOUND           → that selector empty/wrong; re-inspect that click
   Funktion gesperrt / CAD18   → a child window was still open; close inner only
   DOWNLOAD_TIMEOUT            → check Downloads and C:\WilkenExports for .xlsx

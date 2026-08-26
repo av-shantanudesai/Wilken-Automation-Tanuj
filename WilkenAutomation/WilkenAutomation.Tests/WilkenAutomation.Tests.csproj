@@ -7,9 +7,11 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <PreserveCompilationContext>true</PreserveCompilationContext>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
     <PackageReference Include="xunit" Version="2.4.2" />
@@ -24,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\WilkenAutomation.Api\WilkenAutomation.Api.csproj" />
     <ProjectReference Include="..\WilkenAutomation.Application\WilkenAutomation.Application.csproj" />
     <ProjectReference Include="..\WilkenAutomation.Infrastructure\WilkenAutomation.Infrastructure.csproj" />
   </ItemGroup>

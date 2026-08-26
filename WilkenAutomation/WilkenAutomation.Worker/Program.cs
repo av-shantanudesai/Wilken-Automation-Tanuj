@@ -133,9 +133,15 @@ builder.Services.AddSingleton(workerSettings);
 builder.Services.AddSingleton(builder.Configuration.GetSection(MaintenanceSettings.Section).Get<MaintenanceSettings>() ?? new MaintenanceSettings());
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
+if (workerSettings.WorkerCount != 1)
+{
+    Console.WriteLine($"WorkerCount={workerSettings.WorkerCount} is ignored; this host runs a single job loop (one Wilken session).");
+    workerSettings.WorkerCount = 1;
+}
+
 if (workerSettings.AllowDevelopmentJwt)
 {
-    Console.WriteLine("AllowDevelopmentJwt is on — committed Jwt:Key is accepted (test Worker publish).");
+    Console.WriteLine("AllowDevelopmentJwt is on — Jwt:Key from Local.json / user-secrets is accepted.");
 }
 else
 {

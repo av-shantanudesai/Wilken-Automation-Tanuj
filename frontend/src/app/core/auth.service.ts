@@ -182,6 +182,7 @@ export class AuthService {
   }
 
   private isBackend(): boolean {
+    if (!environment.useMock) return true;
     return (sessionStorage.getItem(MODE_KEY) || localStorage.getItem(MODE_KEY) || 'mock') === 'backend';
   }
 

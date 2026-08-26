@@ -14,6 +14,7 @@
         <a routerLink="/audit" routerLinkActive="active">Audit Report</a>
       </nav>
 
+      @if (allowMockToggle) {
       <div class="mode-toggle"
            [title]="api.mode() === 'mock'
              ? 'Simulation runs entirely in this browser tab and persists to localStorage.'
@@ -21,6 +22,7 @@
         <button [class.selected]="api.mode() === 'mock'" (click)="api.setMode('mock')">Mock</button>
         <button [class.selected]="api.mode() === 'backend'" (click)="api.setMode('backend')">Backend API</button>
       </div>
+      }
 
       <div class="session">
         <span class="session-name">{{ auth.user()?.displayName }}</span>

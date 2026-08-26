@@ -3,6 +3,7 @@ import { ExportApi } from './export-api';
 import { HttpExportApi } from './http-export-api';
 import { MockExportApi } from './mock-export-api';
 import { AuthService } from './auth.service';
+import { environment } from '../../environments/environment';
 import {
   AuditReport,
   CreateRunRequest,
@@ -27,14 +28,16 @@ const RUN_KEY = 'wilken-selected-run';
  */
 @Injectable({ providedIn: 'root' })
 export class ApiService implements ExportApi {
-  private mockApi = inject(MockExportApi);
+  private mockApi = inject(MockExportApi, { optional: true });
   private httpApi = inject(HttpExportApi);
   private auth = inject(AuthService);
 
-  readonly mode = signal<ApiMode>((localStorage.getItem(MODE_KEY) as ApiMode) || 'mock');
+  readonly allowMock = environment.useMock;
+  readonly mode = signal<ApiMode>(resolveInitialMode());
   readonly selectedRunId = signal<string | null>(localStorage.getItem(RUN_KEY));
 
   setMode(mode: ApiMode): void {
+    if (!environment.useMock && mode === 'mock') return;
     this.mode.set(mode);
     localStorage.setItem(MODE_KEY, mode);
     this.selectRun(null);
@@ -48,7 +51,8 @@ export class ApiService implements ExportApi {
   }
 
   private get api(): ExportApi {
-    return this.mode() === 'mock' ? this.mockApi : this.httpApi;
+    if (this.mode() === 'mock' && this.mockApi) return this.mockApi;
+    return this.httpApi;
   }
 
   listRuns(): Promise<RunSummary[]> { return this.api.listRuns(); }
@@ -65,4 +69,10 @@ export class ApiService implements ExportApi {
     return this.api.getLogs(runId, jobId, limit);
   }
   listExportDefinitions(): Promise<ExportDefinitionInfo[]> { return this.api.listExportDefinitions(); }
+}
+
+function resolveInitialMode(): ApiMode {
+  if (!environment.useMock) return 'backend';
+  const stored = localStorage.getItem(MODE_KEY);
+  return stored === 'backend' || stored === 'mock' ? stored : 'mock';
 }

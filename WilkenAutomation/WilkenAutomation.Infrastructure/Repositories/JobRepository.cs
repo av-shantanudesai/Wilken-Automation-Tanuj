@@ -55,6 +55,72 @@ public class JobRepository : IJobRepository
             .OrderBy(j => j.OrderIndex)
             .FirstOrDefaultAsync(ct);
 
+    public async Task<ExportJob?> ClaimNextEligibleAsync(string runId, CancellationToken ct)
+    {
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            if (_db.Database.IsRelational())
+            {
+                await using var tx = await _db.Database.BeginTransactionAsync(ct);
+                var claimed = await TryClaimLockedAsync(runId, ct);
+                await tx.CommitAsync(ct);
+                return claimed;
+            }
+
+            return await TryClaimLockedAsync(runId, ct);
+        });
+    }
+
+    private async Task<ExportJob?> TryClaimLockedAsync(string runId, CancellationToken ct)
+    {
+        var job = await GetNextEligibleAsync(runId, ct);
+        if (job is null) return null;
+
+        if (_db.Database.IsRelational())
+        {
+            try
+            {
+                await _db.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT 1 FROM ExportJobs WHERE JobId = {job.JobId} FOR UPDATE", ct);
+                await _db.Entry(job).ReloadAsync(ct);
+                if (job.Status is not JobStatus.Pending and not JobStatus.Retry)
+                    return await TryClaimLockedAsync(runId, ct);
+            }
+            catch (Exception)
+            {
+                // SQLite and in-memory providers reject FOR UPDATE; the transaction still serializes writers.
+            }
+        }
+
+        JobStateMachine.EnsureTransition(job.Status, JobStatus.Running);
+        job.Status = JobStatus.Running;
+        job.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return job;
+    }
+
+    public async Task<int> RequeueFailedJobsAsync(string runId, CancellationToken ct)
+    {
+        var failed = await _db.ExportJobs
+            .Where(j => j.RunId == runId && j.Status == JobStatus.FailedFinal)
+            .ToListAsync(ct);
+
+        foreach (var job in failed)
+        {
+            JobStateMachine.EnsureTransition(job.Status, JobStatus.Pending);
+            job.Status = JobStatus.Pending;
+            job.ErrorCode = null;
+            job.ErrorMessage = null;
+            job.UpdatedAt = DateTime.UtcNow;
+        }
+
+        if (failed.Count > 0)
+            await _db.SaveChangesAsync(ct);
+
+        return failed.Count;
+    }
+
     public Task<ExportJob?> GetCurrentRunningAsync(CancellationToken ct) =>
         _db.ExportJobs.Where(j => j.Status == JobStatus.Running)
             .OrderByDescending(j => j.StartTime)

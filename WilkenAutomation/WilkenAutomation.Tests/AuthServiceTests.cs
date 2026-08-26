@@ -105,6 +105,27 @@ public class AuthServiceTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(jwt.CreateWorkerToken()));
     }
 
+    [Fact]
+    public async Task Register_WhenDisabled_IsRejected()
+    {
+        var jwt = new JwtTokenService(new JwtOptions
+        {
+            Key = "WilkenAutomation-DevOnly-ChangeThisKey-32ch"
+        });
+        var auth = new AuthService(
+            new UserRepository(_ctx.Db),
+            new RefreshTokenRepository(_ctx.Db),
+            jwt,
+            new AuthOptions { AllowRegistration = false });
+
+        var ex = await Assert.ThrowsAsync<AuthException>(() => auth.RegisterAsync(new RegisterRequestDto
+        {
+            Email = "locked@example.com",
+            Password = "Secret123"
+        }, null, CancellationToken.None));
+        Assert.Equal("REGISTRATION_DISABLED", ex.ErrorCode);
+    }
+
     public void Dispose() => _ctx.Dispose();
 }
 
