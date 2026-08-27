@@ -230,9 +230,9 @@ using (var scope = host.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AutomationDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Schema");
-    DatabaseSchemaPatcher.ApplyAsync(db, logger).GetAwaiter().GetResult();
+    await DatabaseSchemaPatcher.ApplyAsync(db, logger);
 }
-host.Run();
+await host.RunAsync();
 
 static void ApplyDesktopTestDefaults(WilkenOptions options)
 {

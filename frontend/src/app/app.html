@@ -1,4 +1,4 @@
-@if (showShell) {
+@if (showShell()) {
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
@@ -32,6 +32,6 @@
   </header>
 }
 
-<main class="content" [class.full]="!showShell">
+<main class="content" [class.full]="!showShell()">
   <router-outlet />
 </main>

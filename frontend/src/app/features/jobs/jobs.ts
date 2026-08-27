@@ -1,16 +1,18 @@
-import { Component, OnDestroy, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
 import { RealtimeService } from '../../core/realtime.service';
-import { Job, JobDetail, JobStatus } from '../../core/models';
 import { describeError } from '../../core/errors';
+import { shortSha } from '../../core/format';
+import { Job, JobDetail, JobStatus } from '../../core/models';
 
 @Component({
   selector: 'app-jobs',
   imports: [DatePipe, DecimalPipe, FormsModule],
   templateUrl: './jobs.html',
   styleUrl: './jobs.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class JobsPage implements OnDestroy {
   readonly api = inject(ApiService);
@@ -32,6 +34,7 @@ export class JobsPage implements OnDestroy {
   yearFilter = signal<number | null>(null);
 
   private timer: ReturnType<typeof setInterval>;
+  private reloadQueued: ReturnType<typeof setTimeout> | null = null;
   private pollTicks = 0;
   private unsubscribeRealtime: (() => void) | null = null;
 
@@ -42,7 +45,7 @@ export class JobsPage implements OnDestroy {
       this.realtime.connect();
       const runId = this.api.selectedRunId();
       if (runId) void this.realtime.subscribeToRun(runId);
-      this.unsubscribeRealtime = this.realtime.subscribe(() => void this.load());
+      this.unsubscribeRealtime = this.realtime.subscribe(() => this.queueReload());
     }
   }
 
@@ -52,8 +55,18 @@ export class JobsPage implements OnDestroy {
     if (!live || this.pollTicks % 5 === 0) void this.load();
   }
 
+  /** Debounces bursts of SignalR events into a single reload. */
+  private queueReload(): void {
+    if (this.reloadQueued) return;
+    this.reloadQueued = setTimeout(() => {
+      this.reloadQueued = null;
+      void this.load();
+    }, 300);
+  }
+
   ngOnDestroy(): void {
     clearInterval(this.timer);
+    if (this.reloadQueued) clearTimeout(this.reloadQueued);
     this.unsubscribeRealtime?.();
   }
 
@@ -102,16 +115,22 @@ export class JobsPage implements OnDestroy {
       this.detail.set(null);
       return;
     }
-    this.detail.set(await this.api.getJob(job.id));
+    try {
+      this.detail.set(await this.api.getJob(job.id));
+    } catch (e) {
+      this.error.set(describeError(e));
+    }
   }
 
   async requeue(job: Job, event: Event): Promise<void> {
     event.stopPropagation();
-    await this.api.requeueJob(job.id);
-    await this.load();
+    try {
+      await this.api.requeueJob(job.id);
+      await this.load();
+    } catch (e) {
+      this.error.set(describeError(e));
+    }
   }
 
-  shortSha(sha: string | null): string {
-    return sha ? `${sha.slice(0, 12)}…` : '–';
-  }
+  readonly shortSha = shortSha;
 }

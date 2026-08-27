@@ -51,7 +51,7 @@ Key decisions:
 | `WilkenAutomation.Api` | Controllers, SignalR hub, worker status registry, DTO wire format |
 | `WilkenAutomation.Worker` | Job loop, heartbeat, SignalR, FlaUI, screenshots |
 | `WilkenAutomation.TestDesktop` | Dummy Win UI for FlaUI testing (not Wilken) |
-| `WilkenAutomation.Tests` | 32 tests on the job engine (mock, no UI) |
+| `WilkenAutomation.Tests` | 90+ tests: job engine, state machine, run lifecycle, JWT audience separation, screen-state engine, API integration (mock, no UI) |
 
 ## Running
 
@@ -196,6 +196,42 @@ The existing Angular models were inspected first; the backend adopted them:
   `RealtimeService`; the dashboard now refreshes immediately on hub events in
   backend mode. Polling remains as fallback. No visual redesign.
 
+## Architecture decision records
+
+Deliberate trade-offs that would otherwise look like accidents in review:
+
+1. **Single worker, single active run.** Wilken CS/2 is a stateful desktop
+   session; two automations against one window corrupt each other. Concurrency
+   is intentionally 1 (`Worker` claims jobs transactionally, so a second worker
+   instance is safe but pointless). Scaling means more Windows sessions, not
+   more threads.
+2. **`EnsureCreated` + additive `DatabaseSchemaPatcher` instead of EF migrations.**
+   The schema must work on two providers (MySQL in production, SQLite locally)
+   and on databases that already exist in the field. The patcher applies only
+   additive, idempotent `ALTER TABLE … ADD COLUMN` statements with compile-time
+   constant identifiers. Moving to EF migrations would require baselining every
+   deployed database; deferred until a breaking schema change actually forces it.
+3. **Empty catches are confined to UIA probing.** FlaUI throws when an element
+   vanishes between discovery and read — which is normal while screens
+   transition. Probe helpers (`TryFind…`, `ReadSubtree`, pattern checks) swallow
+   those and return "not found"; the *decision layer* then fails loudly through
+   `WaitUntilUiAsync` timeouts with typed `WilkenAutomationException` error
+   codes. No workflow step continues on a swallowed error.
+4. **One automation class, many partial files.** `WindowsWilkenAutomationService`
+   owns exactly one UIA session (process handle, main window, spool snapshot),
+   so it stays a single type; it is organized into cohesive partials
+   (`.Cs2Workflow`, `.Screens`, `.Spool`, `.Export`, `.Controls`, `.UiaSearch`,
+   `.Combo`, `.Dialogs`) instead of being split into classes that would have to
+   share mutable session state.
+5. **`MockWilkenAutomationService` lives in the Application layer.** It is the
+   contract's executable specification (failures, crashes, empty periods) and is
+   what the test suite and Mock mode run against — keeping it next to
+   `IWilkenAutomationService` means the engine is testable without Windows,
+   FlaUI, or a desktop session.
+6. **Wire DTOs mirror the pre-existing Angular models.** The frontend contract
+   was inherited, not designed here; DTO names/shapes are locked to it and
+   mapping is explicit (`DtoMapper`) so any wire change is visible in review.
+
 ## Reliability model
 
 - Job lifecycle `PENDING → RUNNING → SUCCESS_WITH_DATA | SUCCESS_EMPTY | FAILED →
@@ -216,6 +252,5 @@ The existing Angular models were inspected first; the backend adopted them:
 
 ## Note on the previous prototype
 
-`backend/WilkenExport.Api` is the earlier single-process prototype and is
-superseded by this solution. It is no longer needed for running the system (it
-also binds the same port 5210 — do not run both at once).
+The earlier single-process prototype (`backend/WilkenExport.Api`) has been
+removed from the repository; this solution supersedes it entirely.

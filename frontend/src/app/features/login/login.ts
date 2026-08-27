@@ -1,14 +1,26 @@
-import { Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { describeError } from '../../core/errors';
+
+/**
+ * Only allows redirect targets that are internal application paths, so a
+ * crafted ?returnUrl= cannot send the user to an external site after login.
+ */
+export function sanitizeReturnUrl(raw: string | null): string {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) {
+    return '/dashboard';
+  }
+  return raw;
+}
 
 @Component({
   selector: 'app-login',
   imports: [FormsModule],
   templateUrl: './login.html',
   styleUrl: './login.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LoginPage {
   private auth = inject(AuthService);
@@ -19,9 +31,9 @@ export class LoginPage {
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
 
-  email = '';
-  password = '';
-  displayName = '';
+  readonly email = signal('');
+  readonly password = signal('');
+  readonly displayName = signal('');
 
   constructor() {
     if (this.auth.isLoggedIn()) {
@@ -34,9 +46,9 @@ export class LoginPage {
     this.error.set(null);
     try {
       if (this.registering()) {
-        await this.auth.register(this.email, this.password, this.displayName);
+        await this.auth.register(this.email(), this.password(), this.displayName());
       } else {
-        await this.auth.login(this.email, this.password);
+        await this.auth.login(this.email(), this.password());
       }
       await this.router.navigateByUrl(this.returnUrl());
     } catch (e) {
@@ -47,6 +59,6 @@ export class LoginPage {
   }
 
   private returnUrl(): string {
-    return this.route.snapshot.queryParamMap.get('returnUrl') || '/dashboard';
+    return sanitizeReturnUrl(this.route.snapshot.queryParamMap.get('returnUrl'));
   }
 }

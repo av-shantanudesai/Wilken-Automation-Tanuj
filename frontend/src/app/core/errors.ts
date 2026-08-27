@@ -27,7 +27,13 @@ export function describeError(e: unknown): string {
           : String(err.message ?? '');
       return `Backend error ${err.status}: ${detail}`;
     }
-    if ('message' in err) return String(err.message);
+    if ('message' in err) {
+      const message = String(err.message);
+      if (message.includes('Http failure')) {
+        return `Backend not reachable at ${environment.apiBaseUrl} - start the API or switch to Mock mode.`;
+      }
+      return message;
+    }
   }
   return String(e);
 }

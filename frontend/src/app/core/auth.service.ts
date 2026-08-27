@@ -4,10 +4,8 @@ import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthResponse, AuthUser } from './models';
+import { API_MODE_KEY, AUTH_SESSION_KEY, MOCK_USERS_KEY } from './storage-keys';
 
-const AUTH_KEY = 'wilken-auth';
-const MOCK_USERS_KEY = 'wilken-mock-users';
-const MODE_KEY = 'wilken-api-mode';
 const ACCESS_SKEW_MS = 30_000;
 
 interface StoredAuth {
@@ -63,7 +61,7 @@ export class AuthService {
     this.clearTimer();
     const hadSession = !!this.session();
     this.session.set(null);
-    sessionStorage.removeItem(AUTH_KEY);
+    sessionStorage.removeItem(AUTH_SESSION_KEY);
     if (this.isBackend() && hadSession) {
       void firstValueFrom(this.http.post(`${environment.apiBaseUrl}/auth/logout`, {})).catch(() => undefined);
     }
@@ -129,9 +127,9 @@ export class AuthService {
     };
     this.session.set(stored);
     if (!this.isBackend()) {
-      sessionStorage.setItem(AUTH_KEY, JSON.stringify(stored));
+      sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(stored));
     } else {
-      sessionStorage.removeItem(AUTH_KEY);
+      sessionStorage.removeItem(AUTH_SESSION_KEY);
     }
     this.scheduleRefresh(stored.expiresAt);
   }
@@ -164,15 +162,15 @@ export class AuthService {
   private readSession(): StoredAuth | null {
     if (this.isBackend()) return null;
     try {
-      const raw = sessionStorage.getItem(AUTH_KEY);
+      const raw = sessionStorage.getItem(AUTH_SESSION_KEY);
       if (!raw) return null;
       const stored = JSON.parse(raw) as StoredAuth;
       if (!isStoredAuth(stored)) {
-        sessionStorage.removeItem(AUTH_KEY);
+        sessionStorage.removeItem(AUTH_SESSION_KEY);
         return null;
       }
       if (new Date(stored.refreshExpiresAt).getTime() <= Date.now()) {
-        sessionStorage.removeItem(AUTH_KEY);
+        sessionStorage.removeItem(AUTH_SESSION_KEY);
         return null;
       }
       return stored;
@@ -183,7 +181,8 @@ export class AuthService {
 
   private isBackend(): boolean {
     if (!environment.useMock) return true;
-    return (sessionStorage.getItem(MODE_KEY) || localStorage.getItem(MODE_KEY) || 'mock') === 'backend';
+    // ApiService only ever persists the mode to localStorage.
+    return (localStorage.getItem(API_MODE_KEY) || 'mock') === 'backend';
   }
 
   private async registerMock(email: string, password: string, displayName?: string): Promise<AuthResponse> {

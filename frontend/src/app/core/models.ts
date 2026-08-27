@@ -6,7 +6,6 @@ export type JobStatus =
   | 'Retry'
   | 'SuccessWithData'
   | 'SuccessEmpty'
-  | 'Failed'
   | 'FailedFinal';
 
 export type ValidationOutcome = 'NotValidated' | 'Valid' | 'ValidEmpty' | 'Invalid';

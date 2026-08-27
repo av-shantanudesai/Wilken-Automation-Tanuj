@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ApiService } from '../../core/api.service';
@@ -10,6 +10,7 @@ import { ExportDefinitionInfo } from '../../core/models';
   imports: [FormsModule],
   templateUrl: './new-run.html',
   styleUrl: './new-run.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewRunPage implements OnInit {
   private api = inject(ApiService);
@@ -62,7 +63,7 @@ export class NewRunPage implements OnInit {
       const requires = def?.requires ?? ['CLIENT', 'YEAR', 'ACCOUNTING_LAW'];
       const c = requires.includes('CLIENT') ? clients : 1;
       const y = requires.includes('YEAR') ? years : 1;
-      const p = requires.includes('PERIOD') ? 1 : 1;
+      // PERIOD does not multiply the estimate: each job covers a single period.
       let l = 1;
       if (requires.includes('ACCOUNTING_LAW')) {
         const preferred = name === 'Anlagenspiegel' || name === 'AlleAnlagenNachKontenVerdichtet'
@@ -70,7 +71,7 @@ export class NewRunPage implements OnInit {
           : name === 'Zugangsliste' ? 'Handelsrecht' : null;
         l = preferred ? (laws.includes(preferred) ? 1 : 0) : laws.length;
       }
-      total += c * y * p * l;
+      total += c * y * l;
     }
     return total;
   });

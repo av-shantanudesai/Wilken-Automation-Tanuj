@@ -81,7 +81,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.FromSeconds(30),
             ValidIssuer = jwtTokens.Issuer,
             ValidAudiences = jwtTokens.ValidAudiences,
-            IssuerSigningKeys = jwtTokens.SigningKeys,
+            // Keys are resolved per token from its claimed audience, so the user
+            // key can never validate a worker-audience token (and vice versa).
+            IssuerSigningKeyResolver = (_, securityToken, _, _) => jwtTokens.ResolveSigningKeys(securityToken),
+            ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
             RoleClaimType = System.Security.Claims.ClaimTypes.Role,
             NameClaimType = System.Security.Claims.ClaimTypes.Name,
         };

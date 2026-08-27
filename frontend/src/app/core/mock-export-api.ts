@@ -1,6 +1,7 @@
 import { Injectable, DestroyRef, inject } from '@angular/core';
 import { AuthService } from './auth.service';
 import { ExportApi } from './export-api';
+import { API_MODE_KEY, MOCK_STATE_KEY } from './storage-keys';
 import {
   AuditReport,
   CreateRunRequest,
@@ -49,7 +50,6 @@ interface ActiveWork {
   outcome: 'success' | 'empty' | 'failure' | 'crash';
 }
 
-const STORAGE_KEY = 'wilken-mock-state-v1';
 const DEPARTMENTS_DEFAULT = ['Handelsrecht', 'Steuerrecht'];
 
 /**
@@ -81,6 +81,8 @@ export class MockExportApi implements ExportApi {
   // ---------------------------------------------------------------- engine
 
   private tick(): void {
+    // While the app talks to the real backend, the browser simulation stays idle.
+    if (localStorage.getItem(API_MODE_KEY) === 'backend') return;
     if (this.recovering) return;
 
     const run = this.state.runs.find((r) => r.status === 'Running');
@@ -579,7 +581,7 @@ export class MockExportApi implements ExportApi {
 
   private load(): MockState {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(MOCK_STATE_KEY);
       if (raw) {
         const state = JSON.parse(raw) as MockState;
         for (const run of state.runs) run.userId ??= 0;
@@ -593,7 +595,7 @@ export class MockExportApi implements ExportApi {
 
   private save(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      localStorage.setItem(MOCK_STATE_KEY, JSON.stringify(this.state));
     } catch {
       /* quota exceeded -> keep running in memory */
     }

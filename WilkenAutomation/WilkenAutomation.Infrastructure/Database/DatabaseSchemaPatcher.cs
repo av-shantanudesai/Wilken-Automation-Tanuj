@@ -108,7 +108,13 @@ public static class DatabaseSchemaPatcher
             $"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table}' AND COLUMN_NAME = '{column}'",
             ct);
         if (exists == 0)
+        {
+            // Identifiers cannot be parameterized in DDL; all values are compile-time
+            // constants from this file, never user input.
+#pragma warning disable EF1002
             await db.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} ADD COLUMN {column} {typeSql}", ct);
+#pragma warning restore EF1002
+        }
     }
 
     private static async Task PatchSqliteAsync(AutomationDbContext db, CancellationToken ct)
@@ -162,7 +168,13 @@ public static class DatabaseSchemaPatcher
         var exists = await ScalarAsync(db,
             $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'", ct);
         if (exists == 0)
+        {
+            // Identifiers cannot be parameterized in DDL; all values are compile-time
+            // constants from this file, never user input.
+#pragma warning disable EF1002
             await db.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} ADD COLUMN {column} {typeSql}", ct);
+#pragma warning restore EF1002
+        }
     }
 
     private static async Task<long> ScalarAsync(AutomationDbContext db, string sql, CancellationToken ct)

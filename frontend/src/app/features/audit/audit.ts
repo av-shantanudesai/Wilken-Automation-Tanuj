@@ -1,20 +1,23 @@
-import { Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/api.service';
-import { AuthService } from '../../core/auth.service';
-import { AuditReport } from '../../core/models';
-import { API_BASE_URL } from '../../core/http-export-api';
 import { describeError } from '../../core/errors';
+import { shortSha } from '../../core/format';
+import { API_BASE_URL } from '../../core/http-export-api';
+import { AuditReport } from '../../core/models';
 
 @Component({
   selector: 'app-audit',
   imports: [DatePipe, DecimalPipe],
   templateUrl: './audit.html',
   styleUrl: './audit.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuditPage {
   readonly api = inject(ApiService);
-  private auth = inject(AuthService);
+  private http = inject(HttpClient);
   readonly report = signal<AuditReport | null>(null);
   readonly error = signal<string | null>(null);
 
@@ -38,12 +41,11 @@ export class AuditPage {
     if (!report) return;
 
     if (this.api.mode() === 'backend') {
-      const token = this.auth.token();
-      void fetch(`${API_BASE_URL}/runs/${report.runId}/audit.csv`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      }).then(async (res) => {
-        if (!res.ok) throw new Error(`Download failed (${res.status})`);
-        const blob = await res.blob();
+      // HttpClient (instead of raw fetch) so the auth interceptor attaches the
+      // Bearer token and transparently refreshes it after expiry.
+      void firstValueFrom(
+        this.http.get(`${API_BASE_URL}/runs/${report.runId}/audit.csv`, { responseType: 'blob' }),
+      ).then((blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -73,7 +75,5 @@ export class AuditPage {
     URL.revokeObjectURL(link.href);
   }
 
-  shortSha(sha: string | null): string {
-    return sha ? `${sha.slice(0, 12)}…` : '–';
-  }
+  readonly shortSha = shortSha;
 }

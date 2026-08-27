@@ -3,6 +3,7 @@ import { ExportApi } from './export-api';
 import { HttpExportApi } from './http-export-api';
 import { MockExportApi } from './mock-export-api';
 import { AuthService } from './auth.service';
+import { API_MODE_KEY, SELECTED_RUN_KEY } from './storage-keys';
 import { environment } from '../../environments/environment';
 import {
   AuditReport,
@@ -19,9 +20,6 @@ import {
 
 export type ApiMode = 'mock' | 'backend';
 
-const MODE_KEY = 'wilken-api-mode';
-const RUN_KEY = 'wilken-selected-run';
-
 /**
  * Facade every page talks to. Switches between the in-browser mock engine
  * (frontend-only testing) and the .NET backend at runtime.
@@ -34,20 +32,20 @@ export class ApiService implements ExportApi {
 
   readonly allowMock = environment.useMock;
   readonly mode = signal<ApiMode>(resolveInitialMode());
-  readonly selectedRunId = signal<string | null>(localStorage.getItem(RUN_KEY));
+  readonly selectedRunId = signal<string | null>(localStorage.getItem(SELECTED_RUN_KEY));
 
   setMode(mode: ApiMode): void {
     if (!environment.useMock && mode === 'mock') return;
     this.mode.set(mode);
-    localStorage.setItem(MODE_KEY, mode);
+    localStorage.setItem(API_MODE_KEY, mode);
     this.selectRun(null);
     this.auth.logout();
   }
 
   selectRun(runId: string | null): void {
     this.selectedRunId.set(runId);
-    if (runId) localStorage.setItem(RUN_KEY, runId);
-    else localStorage.removeItem(RUN_KEY);
+    if (runId) localStorage.setItem(SELECTED_RUN_KEY, runId);
+    else localStorage.removeItem(SELECTED_RUN_KEY);
   }
 
   private get api(): ExportApi {
@@ -73,6 +71,6 @@ export class ApiService implements ExportApi {
 
 function resolveInitialMode(): ApiMode {
   if (!environment.useMock) return 'backend';
-  const stored = localStorage.getItem(MODE_KEY);
+  const stored = localStorage.getItem(API_MODE_KEY);
   return stored === 'backend' || stored === 'mock' ? stored : 'mock';
 }

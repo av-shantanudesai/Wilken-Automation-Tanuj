@@ -3,7 +3,7 @@
 A restartable, state-aware, self-recovering, validated, auditable export engine for Wilken CS/2 Asset Accounting data (78 clients × 23 fiscal years × 2 departments = 3,588 jobs), currently running against a **simulated (dummy) Wilken adapter** for end-to-end testing.
 
 - Full technical analysis and design: [`ANALYSIS.md`](./ANALYSIS.md)
-- Backend: **.NET 8** (`WilkenAutomation/` — current; `backend/WilkenExport.Api` — earlier prototype)
+- Backend: **.NET 8** (`WilkenAutomation/`)
 - Database: **MySQL** (SQLite in Development for local testing)
 - Frontend: **Angular 21** (`frontend`) — dashboard, job queue, run creation, audit report
 

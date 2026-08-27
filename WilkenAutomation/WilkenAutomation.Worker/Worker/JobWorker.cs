@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 using WilkenAutomation.Application.Configuration;
 using WilkenAutomation.Application.Enums;
@@ -217,65 +216,5 @@ public class JobWorker : BackgroundService
         {
             _logger.LogWarning(ex, "Idle session recovery failed.");
         }
-    }
-}
-
-/// <summary>Publishes the worker heartbeat (status + current runtime) through SignalR and HTTP.</summary>
-public class HeartbeatService : BackgroundService
-{
-    private readonly WorkerState _state;
-    private readonly IRealtimeNotifier _notifier;
-    private readonly WorkerSettings _settings;
-    private readonly JwtTokenService _tokens;
-    private readonly ILogger<HeartbeatService> _logger;
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
-
-    public HeartbeatService(
-        WorkerState state,
-        IRealtimeNotifier notifier,
-        WorkerSettings settings,
-        JwtTokenService tokens,
-        ILogger<HeartbeatService> logger)
-    {
-        _state = state;
-        _notifier = notifier;
-        _settings = settings;
-        _tokens = tokens;
-        _logger = logger;
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_settings.HeartbeatIntervalMs));
-        while (await timer.WaitForNextTickAsync(stoppingToken))
-        {
-            var snapshot = _state.Snapshot();
-            await _notifier.PublishWorkerStatusAsync(snapshot, stoppingToken, _state.OwnerUserId);
-            await PostHeartbeatAsync(snapshot, stoppingToken);
-        }
-    }
-
-    private async Task PostHeartbeatAsync(WorkerStatusDto snapshot, CancellationToken ct)
-    {
-        try
-        {
-            var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/api/worker/heartbeat";
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _tokens.CreateWorkerToken());
-            request.Content = JsonContent.Create(snapshot);
-            using var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode)
-                _logger.LogDebug("HTTP heartbeat returned {Status}.", (int)response.StatusCode);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogDebug("HTTP heartbeat failed: {Message}", ex.Message);
-        }
-    }
-
-    public override void Dispose()
-    {
-        _http.Dispose();
-        base.Dispose();
     }
 }

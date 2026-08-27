@@ -5,10 +5,10 @@ Scope: 78 clients × 23 fiscal years × 2 departments (Handelsrecht / Steuerrech
 
 The repository contains a runnable reference implementation:
 
-- `backend/WilkenExport.Api` — .NET 8 export engine (job store, scheduler, worker, validation, checksums, audit) with a **simulated Wilken adapter** for dummy-data testing.
+- `WilkenAutomation` — .NET 8 export engine (API, application layer, worker, validation, checksums, audit) with mock and real Windows UI Automation implementations.
 - `frontend` — Angular 21 operator console with a **mock mode** (runs entirely in the browser) and a **backend mode**.
 
-Everything Wilken-specific is isolated behind one interface (`IWilkenAdapter`), so the production RPA/integration adapter can replace the simulator without touching job management, validation, persistence, or monitoring.
+Everything Wilken-specific is isolated behind one interface (`IWilkenAutomationService`), so the production RPA/integration adapter can replace the simulator without touching job management, validation, persistence, or monitoring.
 
 ---
 

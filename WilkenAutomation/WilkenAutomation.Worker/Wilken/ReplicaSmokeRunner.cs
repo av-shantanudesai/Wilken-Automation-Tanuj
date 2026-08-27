@@ -81,7 +81,7 @@ internal static class ReplicaSmokeRunner
             catalog,
             loggerFactory.CreateLogger<WindowsWilkenAutomationService>());
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(manualLogin ? 25 : 15));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(manualLogin ? 35 : 20));
         var runConfig = new RunConfig { EnableContentValidation = false };
 
         try
@@ -91,7 +91,9 @@ internal static class ReplicaSmokeRunner
             await RunOneAsync(wilken, "smoke-2", "Zugangsliste", "Handelsrecht", cts.Token, runConfig);
             Console.WriteLine("SMOKE second job OK — starting Anlagenspiegel (Steuerrecht).");
             await RunOneAsync(wilken, "smoke-3", "Anlagenspiegel", "Steuerrecht", cts.Token, runConfig);
-            Console.WriteLine("SMOKE all three jobs succeeded (2× Zugangsliste, 1× Anlagenspiegel).");
+            Console.WriteLine("SMOKE third job OK — starting Alle Anlagen nach Konten verdichtet.");
+            await RunOneAsync(wilken, "smoke-4", "AlleAnlagenNachKontenVerdichtet", "Steuerrecht", cts.Token, runConfig);
+            Console.WriteLine("SMOKE all four jobs succeeded (2× Zugangsliste, Anlagenspiegel, Alle Anlagen).");
             return 0;
         }
         catch (Exception ex)

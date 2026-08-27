@@ -16,7 +16,14 @@ namespace WilkenAutomation.Worker.Wilken;
 /// Real Wilken CS/2 desktop automation (AutomationMode=Wilken), built on Windows
 /// UI Automation via FlaUI (UIA3). Job steps follow the WilkenCs2ReplicaMock CS/2
 /// workflow. Replica vs real Wilken only changes launch vs attach.
-/// Combo selection and dialog handling live in companion partial files.
+/// <para>
+/// This class is deliberately one type (it owns a single UIA session) but is split
+/// into cohesive partial files: session lifecycle here; workflow steps in
+/// <c>.Cs2Workflow.cs</c>; screen detection in <c>.Screens.cs</c>; spool handling in
+/// <c>.Spool.cs</c>; Gitterbox export in <c>.Export.cs</c>; control interactions in
+/// <c>.Controls.cs</c>; element lookup in <c>.UiaSearch.cs</c>; combo selection in
+/// <c>.Combo.cs</c>; dialog handling in <c>.Dialogs.cs</c>.
+/// </para>
 /// </summary>
 public partial class WindowsWilkenAutomationService : IWilkenAutomationService, IDisposable
 {
@@ -45,9 +52,6 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         (_options.ProcessName ?? "").Contains("WilkenCs2ReplicaMock", StringComparison.OrdinalIgnoreCase)
         || EffectiveExecutablePath().Contains("WilkenCs2ReplicaMock", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Prozesse verwalten → save → execute → Liste anzeigen → spool → Gitterbox → internal close.</summary>
-    private bool UseCs2Workflow => true;
-
     public WindowsWilkenAutomationService(
         WilkenOptions options,
         IWilkenCredentialProvider credentials,
@@ -75,8 +79,7 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         if (TryIsAlive() && SessionStatus == WilkenSessionStatus.Ready)
             return;
 
-        EnsureInspectedSelectors();
-        if (UseCs2Workflow && !IsReplica)
+        if (!IsReplica)
         {
             var missingCs2 = WilkenSelectorCatalog.MissingCs2(_options.Selectors);
             if (missingCs2.Count > 0)
@@ -91,12 +94,9 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
                 _logger.LogInformation("All CS/2 Wilken:Selectors are filled from inspect.");
             }
         }
-        if (UseCs2Workflow)
-        {
-            _logger.LogInformation(
-                "CS/2 workflow: Prozesse verwalten → save → Ausführen → Liste anzeigen → spool → Gitterbox-Export → InternalWindow_Close. " +
-                "Controls resolve by AutomationId, then Wilken:Selectors, then German names.");
-        }
+        _logger.LogInformation(
+            "CS/2 workflow: Prozesse verwalten → save → Ausführen → Liste anzeigen → spool → Gitterbox-Export → InternalWindow_Close. " +
+            "Controls resolve by AutomationId, then Wilken:Selectors, then German names.");
 
         SessionStatus = WilkenSessionStatus.Starting;
         _automation ??= new UIA3Automation();
@@ -339,167 +339,36 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
 
     public Task CaptureSpoolSnapshotAsync(CancellationToken ct)
     {
-        if (UseCs2Workflow)
-            ReplicaCaptureSpoolSnapshot();
+        ReplicaCaptureSpoolSnapshot();
         return Task.CompletedTask;
     }
 
-    public async Task OpenExportDefinitionAsync(string definitionName, CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-        {
-            await ReplicaOpenReportAsync(definitionName, ct);
-            return;
-        }
+    public Task OpenExportDefinitionAsync(string definitionName, CancellationToken ct) =>
+        ReplicaOpenReportAsync(definitionName, ct);
 
-        await OpenAssetAccountingAsync(ct);
-    }
+    public Task OpenAssetAccountingAsync(CancellationToken ct) =>
+        ReplicaOpenReportAsync(_job?.ExportDefinition, ct);
 
-    public async Task OpenAssetAccountingAsync(CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-        {
-            await ReplicaOpenReportAsync(_job?.ExportDefinition, ct);
-            return;
-        }
-        GuardHealthy();
-        HandleDialogs();
-        InvokeControl(Find("AssetAccountingMenu"));
-        await WaitUntilUiAsync(
-            () => TryFind("AssetAccountingWindowMarker") is not null,
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            "Asset Accounting window", ct);
-    }
+    public Task SetFiscalYearAsync(int fiscalYear, CancellationToken ct) =>
+        ReplicaSetPeriodAsync(fiscalYear, ct);
 
-    public async Task SetFiscalYearAsync(int fiscalYear, CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-        {
-            await ReplicaSetPeriodAsync(fiscalYear, ct);
-            return;
-        }
-        GuardHealthy();
-        HandleDialogs();
-        var field = Find("FiscalYearField");
-        SetControlValue(field, fiscalYear.ToString());
-        await WaitUntilUiAsync(
-            () => ControlShowsValue(TryFind("FiscalYearField"), fiscalYear.ToString()),
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            $"fiscal year '{fiscalYear}'", ct);
-    }
+    public Task SelectDepartmentAsync(string department, CancellationToken ct) =>
+        ReplicaSetFachbereichAsync(department, ct);
 
-    public async Task SelectDepartmentAsync(string department, CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-        {
-            await ReplicaSetFachbereichAsync(department, ct);
-            return;
-        }
-        GuardHealthy();
-        HandleDialogs();
-        await SetSelectorValueAsync("DepartmentField", department, ct);
-    }
+    public Task StartEvaluationAsync(CancellationToken ct) =>
+        ReplicaExecuteAsync(ct);
 
-    public async Task StartEvaluationAsync(CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-        {
-            await ReplicaExecuteAsync(ct);
-            return;
-        }
-        GuardHealthy();
-        HandleDialogs();
-        TryCollapse(TryFind("ClientField"));
-        TryCollapse(TryFind("DepartmentField"));
-        InvokeControl(Find("ExecuteButton"));
-        SessionStatus = WilkenSessionStatus.Busy;
-    }
+    public Task WaitForReportReadyAsync(CancellationToken ct) =>
+        ReplicaWaitForProgressAsync(ct);
 
-    public async Task WaitForReportReadyAsync(CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-        {
-            await ReplicaWaitForProgressAsync(ct);
-            return;
-        }
-        var readyText = _options.Selectors.GetValueOrDefault("ReportReadyText", "");
-        await WaitUntilUiAsync(() =>
-        {
-            var indicator = TryFind("ReportStatusIndicator");
-            if (indicator is null) return false;
-            var value = ReadValue(indicator);
-            if (value.Contains("Error", StringComparison.OrdinalIgnoreCase))
-                throw new WilkenAutomationException("REPORT_ERROR", $"Wilken reported an evaluation error: {value}");
-            return string.IsNullOrEmpty(readyText)
-                ? indicator.Properties.IsEnabled.ValueOrDefault
-                : value.Contains(readyText, StringComparison.OrdinalIgnoreCase);
-        },
-        TimeSpan.FromMinutes(_options.ReportTimeoutMinutes),
-        "report/spool readiness", ct);
-        SessionStatus = WilkenSessionStatus.Ready;
-    }
+    public Task OpenSpoolAsync(CancellationToken ct) =>
+        ReplicaOpenSpoolAsync(ct);
 
-    public async Task OpenSpoolAsync(CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-        {
-            await ReplicaOpenSpoolAsync(ct);
-            return;
-        }
-        GuardHealthy();
-        HandleDialogs();
-        InvokeControl(Find("SpoolMenu"));
-        await WaitUntilUiAsync(() => SpoolHasReport(),
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            "spool list with a generated report", ct);
-    }
+    public Task<string> ExportAsync(ExportJob job, CancellationToken ct) =>
+        ReplicaExportAsync(job, ct);
 
-    public async Task<string> ExportAsync(ExportJob job, CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-            return await ReplicaExportAsync(job, ct);
-
-        GuardHealthy();
-        HandleDialogs();
-
-        var extension = string.IsNullOrWhiteSpace(_exportSettings.FileExtension) ? ".csv" : _exportSettings.FileExtension;
-        if (!extension.StartsWith('.')) extension = "." + extension;
-        var tempPath = Path.Combine(Path.GetTempPath(), "WilkenAutomationExports",
-            $"{job.JobId}-{Guid.NewGuid():N}{extension}");
-        Directory.CreateDirectory(Path.GetDirectoryName(tempPath)!);
-
-        await WaitUntilUiAsync(() =>
-        {
-            var export = TryFind("ExportButton");
-            return export is not null && export.Properties.IsEnabled.ValueOrDefault;
-        }, TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds), "enabled Export button", ct);
-
-        InvokeControl(Find("ExportButton"));
-
-        await WaitUntilUiAsync(
-            () => TryFind("SaveDialogFileName") is not null,
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            "save dialog", ct);
-
-        var nameBox = Find("SaveDialogFileName");
-        SetControlValue(nameBox, tempPath);
-        await WaitUntilUiAsync(
-            () => ReadValue(Find("SaveDialogFileName")).Contains(tempPath, StringComparison.OrdinalIgnoreCase)
-                  || ControlShowsValue(TryFind("SaveDialogFileName"), Path.GetFileName(tempPath)),
-            TimeSpan.FromSeconds(_options.NavigationTimeoutSeconds),
-            "save path typed", ct);
-
-        InvokeControl(Find("SaveDialogConfirm"));
-        _logger.LogInformation("Export confirmed. Expected archive name: Mandant_{Client}_{Year}_{Department}{Ext}",
-            job.Client, job.FiscalYear, job.Department, extension);
-        return tempPath;
-    }
-
-    public async Task ReturnToProcessManagerAsync(CancellationToken ct)
-    {
-        if (UseCs2Workflow)
-            await ReplicaReturnToProcessManagerAsync(ct);
-    }
+    public Task ReturnToProcessManagerAsync(CancellationToken ct) =>
+        ReplicaReturnToProcessManagerAsync(ct);
 
     public Task<bool> IsSessionHealthyAsync(CancellationToken ct)
     {
@@ -765,23 +634,6 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         }
     }
 
-    private void EnsureInspectedSelectors()
-    {
-        if (!_options.RequireInspectedSelectors || IsReplica || UseCs2Workflow)
-            return;
-
-        var missing = WilkenSelectorCatalog.MissingRequired(_options.Selectors);
-        if (missing.Count == 0)
-            return;
-
-        throw new WilkenAutomationException("INSPECT_REQUIRED",
-            "Real Wilken UI (WinForms, WPF, Win32, or Java) must be inspected before automation. " +
-            "Inside the Citrix Test Environment desktop run: " +
-            $"dotnet run --project WilkenAutomation.Worker -- --inspect \"{_options.MainWindowTitle}\". " +
-            "Map the dumped AutomationId/Name/ClassName values into Wilken:Selectors. Missing: " +
-            string.Join(", ", missing) + ". " + WilkenSessionPolicy.AttachInstructions);
-    }
-
     private bool TryAttachToOpenSession()
     {
         _automation ??= new UIA3Automation();
@@ -1033,21 +885,6 @@ public partial class WindowsWilkenAutomationService : IWilkenAutomationService, 
         _app = null;
         _mainWindow = null;
         SessionStatus = WilkenSessionStatus.NotRunning;
-    }
-
-    private bool SpoolHasReport()
-    {
-        var list = TryFind("SpoolList");
-        if (list is null) return false;
-        try
-        {
-            var items = list.AsListBox().Items;
-            if (items is { Length: > 0 }) return true;
-        }
-        catch { }
-
-        try { return list.FindAllChildren().Length > 0; }
-        catch { return false; }
     }
 
     private AutomationElement Find(string selectorKey) =>

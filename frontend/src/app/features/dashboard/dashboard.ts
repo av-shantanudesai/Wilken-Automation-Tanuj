@@ -1,16 +1,17 @@
-import { Component, OnDestroy, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { RealtimeService } from '../../core/realtime.service';
+import { describeError } from '../../core/errors';
 import { LogEntry, RunStatusInfo, RunSummary } from '../../core/models';
-import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-dashboard',
   imports: [DatePipe, DecimalPipe, RouterLink],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DashboardPage implements OnDestroy {
   readonly api = inject(ApiService);
@@ -85,7 +86,7 @@ export class DashboardPage implements OnDestroy {
       }
       this.error.set(null);
     } catch (e) {
-      this.error.set(this.describe(e));
+      this.error.set(describeError(e));
     }
   }
 
@@ -106,7 +107,7 @@ export class DashboardPage implements OnDestroy {
       await action(id);
       await this.refresh();
     } catch (e) {
-      this.error.set(this.describe(e));
+      this.error.set(describeError(e));
     } finally {
       this.busy.set(false);
     }
@@ -122,15 +123,5 @@ export class DashboardPage implements OnDestroy {
     if (h > 0) return `${h}h ${m}m`;
     if (m > 0) return `${m}m ${s}s`;
     return `${s}s`;
-  }
-
-  private describe(e: unknown): string {
-    if (e && typeof e === 'object' && 'message' in e) {
-      const msg = String((e as { message: unknown }).message);
-      return msg.includes('Http failure')
-        ? `Backend not reachable at ${environment.apiBaseUrl} - start the API or switch to Mock mode.`
-        : msg;
-    }
-    return String(e);
   }
 }

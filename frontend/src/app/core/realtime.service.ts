@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, effect, inject, signal } from '@angular/core';
 import {
   HubConnection,
   HubConnectionBuilder,
@@ -38,6 +38,14 @@ export class RealtimeService {
   private connection: HubConnection | null = null;
   private listeners = new Set<(event: HubEvent, payload: unknown) => void>();
   private subscribedRunId: string | null = null;
+
+  constructor() {
+    // Drop the live connection on logout. Done here (not in AuthService) to
+    // avoid a DI cycle: this service already depends on AuthService.
+    effect(() => {
+      if (!this.auth.isLoggedIn()) void this.disconnect();
+    });
+  }
 
   connect(): void {
     if (this.connection) return;

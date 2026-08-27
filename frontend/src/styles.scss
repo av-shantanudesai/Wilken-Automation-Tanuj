@@ -141,7 +141,7 @@ table {
   &.Retry { background: var(--warn-soft); color: var(--warn); }
   &.SuccessWithData { background: var(--ok-soft); color: var(--ok); }
   &.SuccessEmpty { background: var(--teal-soft); color: var(--teal); }
-  &.FailedFinal, &.Failed { background: var(--err-soft); color: var(--err); }
+  &.FailedFinal { background: var(--err-soft); color: var(--err); }
   &.Created { background: #f1f5f9; color: var(--text-dim); }
   &.Paused { background: var(--warn-soft); color: var(--warn); }
   &.Completed { background: var(--ok-soft); color: var(--ok); }

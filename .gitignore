@@ -1,8 +1,6 @@
-# .NET
-backend/**/bin/
-backend/**/obj/
-WilkenAutomation/**/bin/
-WilkenAutomation/**/obj/
+# .NET build output (all projects)
+bin/
+obj/
 
 # WilkenAutomation local artifacts (dev database, generated exports, evidence)
 WilkenAutomation/*.db
@@ -10,10 +8,6 @@ WilkenAutomation/*.db-*
 WilkenAutomation/Exports/
 WilkenAutomation/Logs/
 WilkenAutomation/wilken-controls-*.txt
-
-# Generated dummy exports and diagnostics
-backend/WilkenExport.Api/Wilken_Export/
-backend/WilkenExport.Api/Wilken_Diagnostics/
 
 # Node / Angular
 frontend/node_modules/

@@ -68,8 +68,31 @@ public class JwtTokenService
     public string WorkerAudience =>
         string.IsNullOrWhiteSpace(_options.WorkerAudience) ? "WilkenAutomation.Worker" : _options.WorkerAudience;
     public string Issuer => _options.Issuer;
-    public IEnumerable<SecurityKey> SigningKeys => new SecurityKey[] { _userKey, _workerKey };
     public IEnumerable<string> ValidAudiences => new[] { UserAudience, WorkerAudience };
+
+    /// <summary>
+    /// Strict key/audience binding: a token is only checked against the key that
+    /// matches its single claimed audience. A token signed with the user key can
+    /// therefore never validate as a worker token (and vice versa), even though
+    /// both keys are trusted by the same bearer scheme.
+    /// </summary>
+    public IEnumerable<SecurityKey> ResolveSigningKeys(SecurityToken token)
+    {
+        var audiences = token switch
+        {
+            Microsoft.IdentityModel.JsonWebTokens.JsonWebToken jwt => jwt.Audiences.ToList(),
+            JwtSecurityToken jwt => jwt.Audiences.ToList(),
+            _ => new List<string>()
+        };
+
+        if (audiences.Count != 1)
+            return Array.Empty<SecurityKey>();
+        if (string.Equals(audiences[0], WorkerAudience, StringComparison.Ordinal))
+            return new SecurityKey[] { _workerKey };
+        if (string.Equals(audiences[0], UserAudience, StringComparison.Ordinal))
+            return new SecurityKey[] { _userKey };
+        return Array.Empty<SecurityKey>();
+    }
 
     public (string Token, DateTime ExpiresAt) CreateUserToken(AppUser user)
     {
